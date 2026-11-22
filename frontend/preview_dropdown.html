@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pratinjau Desain Base Dropdown SIMRS Modern</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Plus Jakarta Sans', sans-serif;
+      background-color: #F8FAFC;
+    }
+    @keyframes shimmer {
+      0% { transform: translateX(-100%); }
+      100% { transform: translateX(100%); }
+    }
+    @keyframes gradientMove {
+      0% { background-position: 0% 50%; }
+      50% { background-position: 100% 50%; }
+      100% { background-position: 0% 50%; }
+    }
+    .animate-shimmer {
+      animation: shimmer 1.5s infinite cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .animate-gradient-flow {
+      background-size: 200% 200%;
+      animation: gradientMove 2s ease infinite;
+    }
+  </style>
+</head>
+<body class="p-6 md:p-12 text-[#0F172A]">
+
+  <div class="max-w-4xl mx-auto space-y-8">
+    <!-- Header -->
+    <div class="flex items-center justify-between pb-6 border-b border-[#E2E8F0]">
+      <div>
+        <div class="flex items-center gap-2">
+          <span class="px-2.5 py-1 rounded-md text-[11px] font-bold bg-[#E0F2FE] text-[#0284C7] uppercase tracking-wide">
+            SIMRS Component Library
+          </span>
+          <span class="text-[12px] text-[#64748B]">v2.4 - Modern Redesign</span>
+        </div>
+        <h1 class="text-2xl font-black text-[#0F172A] mt-1 tracking-tight">Desain Base Dropdown & Animasi Loading Modern</h1>
+        <p class="text-[13px] text-[#64748B] mt-0.5">
+          Komponen dropdown presisi sesuai gambar referensi skrining keperawatan dilengkapi animasi loading orbital & skeleton shimmer.
+        </p>
+      </div>
+
+      <button id="toggleLoadingBtn" onclick="toggleGlobalLoading()" class="px-4 py-2 bg-[#0284C7] hover:bg-[#0369A1] text-white text-xs font-semibold rounded-lg shadow-sm transition-all flex items-center gap-2 cursor-pointer active:scale-95">
+        <svg id="btnSpinner" class="w-4 h-4 animate-spin hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10" stroke-opacity="0.25"></circle>
+          <path d="M12 2a10 10 0 0 1 10 10"></path>
+        </svg>
+        <span id="btnText">Simulasikan Loading (ON)</span>
+      </button>
+    </div>
+
+    <!-- Grid Showcase -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+
+      <!-- CARD 1: Presisi Sesuai Gambar Referensi (Skrining Risiko Jatuh) -->
+      <div class="bg-white p-6 rounded-2xl border border-[#E2E8F0] shadow-sm space-y-4">
+        <div class="flex items-center justify-between border-b border-[#F1F5F9] pb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+            <h3 class="text-sm font-bold text-[#0F172A]">1. State Persis Gambar Referensi</h3>
+          </div>
+          <span class="text-[11px] font-mono bg-slate-100 text-slate-600 px-2 py-0.5 rounded">NurseView.vue</span>
+        </div>
+
+        <p class="text-[12px] text-[#64748B]">
+          Tingkat Risiko Jatuh dengan tampilan menu popover terbuka, pilihan terpilih (Risiko Rendah), dan hover border outline biru (Risiko Sedang).
+        </p>
+
+        <!-- Container Dropdown Terbuka Persis Screenshot -->
+        <div class="relative w-full text-left pt-2">
+          <label class="text-[12px] font-medium text-[#475569] flex items-center gap-1 select-none mb-1">
+            Tingkat Risiko Jatuh
+          </label>
+
+          <!-- Trigger -->
+          <div class="relative w-full px-3 text-[13px] bg-white border border-[#0284C7] rounded-[10px] ring-2 ring-[rgba(2,132,199,0.2)] shadow-xs h-[38px] flex items-center justify-between gap-2 select-none cursor-pointer">
+            <span class="font-medium text-[#0F172A]">Risiko Rendah (0 - 24)</span>
+            <svg class="w-4 h-4 text-[#0284C7] shrink-0 rotate-180 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path>
+            </svg>
+          </div>
+
+          <!-- Popover Menempel di Bawahnya -->
+          <div class="mt-1.5 w-full bg-white border border-[#CBD5E1] rounded-[14px] shadow-[0_12px_28px_-6px_rgba(15,23,42,0.14),0_6px_12px_-4px_rgba(15,23,42,0.06)] overflow-hidden p-1.5 space-y-1">
+            <!-- Item 1: Selected -->
+            <div class="px-3.5 py-2.5 rounded-[8px] bg-[#F0F9FF] text-[#0284C7] font-semibold flex items-center justify-between text-[13px] cursor-pointer">
+              <span>Risiko Rendah (0 - 24)</span>
+              <svg class="w-4 h-4 text-[#0284C7] stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+              </svg>
+            </div>
+
+            <!-- Item 2: Hovered/Focused (dengan border outline biru khas referensi!) -->
+            <div class="px-3.5 py-2.5 rounded-[8px] border border-[#0284C7] bg-[#F8FAFC] text-[#0F172A] font-medium flex items-center justify-between text-[13px] cursor-pointer">
+              <span>Risiko Sedang (25 - 44)</span>
+            </div>
+
+            <!-- Item 3: Normal Unselected -->
+            <div class="px-3.5 py-2.5 rounded-[8px] border border-transparent text-[#334155] hover:bg-[#F8FAFC] hover:text-[#0F172A] flex items-center justify-between text-[13px] cursor-pointer">
+              <span>Risiko Tinggi (>= 45)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CARD 2: Animasi Loading Modern (Orbital Spinner + Shimmer Skeleton) -->
+      <div class="bg-white p-6 rounded-2xl border border-[#E2E8F0] shadow-sm space-y-4">
+        <div class="flex items-center justify-between border-b border-[#F1F5F9] pb-3">
+          <div class="flex items-center gap-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-sky-500 animate-pulse"></span>
+            <h3 class="text-sm font-bold text-[#0F172A]">2. State Loading Modern</h3>
+          </div>
+          <span class="text-[11px] font-mono bg-sky-50 text-sky-700 px-2 py-0.5 rounded font-bold">props: loading=true</span>
+        </div>
+
+        <p class="text-[12px] text-[#64748B]">
+          Saat data opsi sedang diambil dari API/server: indikator orbital dual-ring, garis gradasi mengalir di bawah trigger, dan skeleton shimmering di popover.
+        </p>
+
+        <!-- Interactive Loading Select Box -->
+        <div class="relative w-full text-left pt-2">
+          <label class="text-[12px] font-medium text-[#475569] flex items-center gap-1 select-none mb-1">
+            Pilih Dokter Penanggung Jawab (DPJP)
+          </label>
+
+          <!-- Trigger with Loading Indicators -->
+          <div class="relative w-full px-3 text-[13px] bg-white border border-[#0284C7] rounded-[10px] ring-2 ring-[rgba(2,132,199,0.2)] shadow-xs h-[38px] flex items-center justify-between gap-2 select-none overflow-hidden cursor-pointer">
+            <div class="flex items-center gap-2">
+              <span class="text-[#0284C7] text-[12px] font-medium animate-pulse flex items-center gap-1.5">
+                Memuat data dokter aktif...
+              </span>
+            </div>
+
+            <!-- Modern Orbital Dual-Ring Spinner -->
+            <div class="relative w-4 h-4 flex items-center justify-center shrink-0">
+              <div class="absolute inset-0 rounded-full border-2 border-[#0284C7]/20"></div>
+              <div class="w-4 h-4 rounded-full border-2 border-transparent border-t-[#0284C7] border-r-[#0284C7] animate-spin"></div>
+            </div>
+
+            <!-- Linear Glowing Flowing Beam on bottom -->
+            <div class="absolute bottom-0 left-0 right-0 h-[2px] overflow-hidden">
+              <div class="h-full w-full bg-gradient-to-r from-sky-400 via-[#0284C7] to-indigo-500 animate-gradient-flow"></div>
+            </div>
+          </div>
+
+          <!-- Popover with Modern Skeleton Wave -->
+          <div class="mt-1.5 w-full bg-white border border-[#CBD5E1] rounded-[14px] shadow-[0_12px_28px_-6px_rgba(15,23,42,0.14)] overflow-hidden p-2 space-y-2">
+            <!-- Radar Banner -->
+            <div class="flex items-center justify-between px-3 py-1.5 text-[11px] font-semibold text-[#0284C7] bg-[#F0F9FF] rounded-[8px] border border-[#BAE6FD]/60">
+              <span class="flex items-center gap-2">
+                <span class="relative flex h-2 w-2">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-2 w-2 bg-[#0284C7]"></span>
+                </span>
+                Sinkronisasi Master Dokter BPJS...
+              </span>
+              <div class="w-3.5 h-3.5 rounded-full border-2 border-transparent border-t-[#0284C7] animate-spin"></div>
+            </div>
+
+            <!-- Shimmer Skeleton Rows -->
+            <div class="p-2.5 rounded-[8px] bg-slate-50/80 border border-slate-100 flex items-center justify-between relative overflow-hidden my-1">
+              <div class="space-y-1.5 flex-1">
+                <div class="h-3.5 bg-slate-200/80 rounded-md w-3/5"></div>
+                <div class="h-2.5 bg-slate-100 rounded-md w-2/5"></div>
+              </div>
+              <div class="h-3 w-8 bg-slate-200/80 rounded-full"></div>
+              <div class="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/80 to-transparent animate-shimmer"></div>
+            </div>
+
+            <div class="p-2.5 rounded-[8px] bg-slate-50/80 border border-slate-100 flex items-center justify-between relative overflow-hidden my-1">
+              <div class="space-y-1.5 flex-1">
+                <div class="h-3.5 bg-slate-200/80 rounded-md w-1/2"></div>
+                <div class="h-2.5 bg-slate-100 rounded-md w-1/4"></div>
+              </div>
+              <div class="h-3 w-8 bg-slate-200/80 rounded-full"></div>
+              <div class="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/80 to-transparent animate-shimmer"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- CARD 3: Interaktif Live Dropdown Tester -->
+    <div class="bg-white p-6 rounded-2xl border border-[#E2E8F0] shadow-sm space-y-4">
+      <div class="border-b border-[#F1F5F9] pb-3">
+        <h3 class="text-sm font-bold text-[#0F172A]">3. Uji Coba Interaktif Dropdown (Klik untuk Buka/Tutup)</h3>
+        <p class="text-[12px] text-[#64748B]">Klik dropdown di bawah ini untuk mencoba navigasi mouse, pemilihan opsi, dan perubahan status terpilih secara langsung.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+        <!-- Interactive Dropdown 1 -->
+        <div class="relative w-full text-left" id="dropdownContainer">
+          <label class="text-[12px] font-medium text-[#475569] flex items-center gap-1 select-none mb-1">
+            Poli Tujuan Pelayanan
+          </label>
+
+          <div id="interactiveTrigger" onclick="toggleInteractive()" class="relative w-full px-3 text-[13px] bg-white border border-[#CBD5E1] hover:border-[#94A3B8] rounded-[10px] shadow-xs h-[38px] flex items-center justify-between gap-2 select-none cursor-pointer transition-all">
+            <span id="selectedLabel" class="font-medium text-[#0F172A]">Poli Anak Spesialis (dr. Azhar Sp.A)</span>
+            <svg id="interactiveChevron" class="w-4 h-4 text-[#64748B] shrink-0 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"></path>
+            </svg>
+          </div>
+
+          <!-- Popup menu -->
+          <div id="interactivePopup" class="hidden absolute left-0 right-0 top-full mt-1.5 z-50 bg-white border border-[#CBD5E1] rounded-[14px] shadow-[0_12px_28px_-6px_rgba(15,23,42,0.14)] overflow-hidden p-1.5 space-y-1">
+            <div onclick="pickOption('Poli Anak Spesialis (dr. Azhar Sp.A)')" class="opt-row px-3.5 py-2.5 rounded-[8px] bg-[#F0F9FF] text-[#0284C7] font-semibold flex items-center justify-between text-[13px] cursor-pointer">
+              <span>Poli Anak Spesialis (dr. Azhar Sp.A)</span>
+              <svg class="check-icon w-4 h-4 text-[#0284C7] stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>
+            </div>
+            <div onclick="pickOption('Poli Tumbuh Kembang Anak')" class="opt-row px-3.5 py-2.5 rounded-[8px] border border-transparent text-[#334155] hover:border-[#0284C7] hover:bg-[#F8FAFC] hover:text-[#0F172A] flex items-center justify-between text-[13px] cursor-pointer">
+              <span>Poli Tumbuh Kembang Anak</span>
+            </div>
+            <div onclick="pickOption('Poli Gigi & Mulut Anak')" class="opt-row px-3.5 py-2.5 rounded-[8px] border border-transparent text-[#334155] hover:border-[#0284C7] hover:bg-[#F8FAFC] hover:text-[#0F172A] flex items-center justify-between text-[13px] cursor-pointer">
+              <span>Poli Gigi & Mulut Anak</span>
+            </div>
+            <div onclick="pickOption('Instalasi Gawat Darurat (IGD)')" class="opt-row px-3.5 py-2.5 rounded-[8px] border border-transparent text-[#334155] hover:border-[#0284C7] hover:bg-[#F8FAFC] hover:text-[#0F172A] flex items-center justify-between text-[13px] cursor-pointer">
+              <span>Instalasi Gawat Darurat (IGD)</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Info Card -->
+        <div class="bg-[#F8FAFC] p-4 rounded-xl border border-[#E2E8F0] space-y-2 text-[12px] text-[#475569]">
+          <h4 class="font-bold text-[#0F172A]">Fitur Desain Dropdown Baru:</h4>
+          <ul class="list-disc list-inside space-y-1">
+            <li><strong class="text-[#0284C7]">Trigger Radius 10px:</strong> Sudut melengkung halus dan elegan sesuai standar modern.</li>
+            <li><strong class="text-[#0284C7]">Hover Outline Biru:</strong> Opsi yang sedang disorot kursor diberi outline biru khas klinik anak.</li>
+            <li><strong class="text-[#0284C7]">Checkmark Presisi:</strong> Tanda centang biru di sebelah kanan opsi yang terpilih.</li>
+            <li><strong class="text-[#0284C7]">Orbital Loading Ring:</strong> Efek putaran ganda modern saat sinkronisasi data async.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let isInteractiveOpen = false;
+
+    function toggleInteractive() {
+      isInteractiveOpen = !isInteractiveOpen;
+      const popup = document.getElementById('interactivePopup');
+      const trigger = document.getElementById('interactiveTrigger');
+      const chevron = document.getElementById('interactiveChevron');
+
+      if (isInteractiveOpen) {
+        popup.classList.remove('hidden');
+        trigger.classList.add('border-[#0284C7]', 'ring-2', 'ring-[rgba(2,132,199,0.2)]');
+        trigger.classList.remove('border-[#CBD5E1]');
+        chevron.classList.add('rotate-180', 'text-[#0284C7]');
+        chevron.classList.remove('text-[#64748B]');
+      } else {
+        popup.classList.add('hidden');
+        trigger.classList.remove('border-[#0284C7]', 'ring-2', 'ring-[rgba(2,132,199,0.2)]');
+        trigger.classList.add('border-[#CBD5E1]');
+        chevron.classList.remove('rotate-180', 'text-[#0284C7]');
+        chevron.classList.add('text-[#64748B]');
+      }
+    }
+
+    function pickOption(label) {
+      document.getElementById('selectedLabel').textContent = label;
+      const rows = document.querySelectorAll('#interactivePopup .opt-row');
+      rows.forEach(r => {
+        if (r.innerText.trim().startsWith(label)) {
+          r.className = 'opt-row px-3.5 py-2.5 rounded-[8px] bg-[#F0F9FF] text-[#0284C7] font-semibold flex items-center justify-between text-[13px] cursor-pointer';
+          r.innerHTML = `<span>${label}</span><svg class="check-icon w-4 h-4 text-[#0284C7] stroke-[2.5]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path></svg>`;
+        } else {
+          const text = r.querySelector('span')?.textContent || r.innerText.trim();
+          r.className = 'opt-row px-3.5 py-2.5 rounded-[8px] border border-transparent text-[#334155] hover:border-[#0284C7] hover:bg-[#F8FAFC] hover:text-[#0F172A] flex items-center justify-between text-[13px] cursor-pointer';
+          r.innerHTML = `<span>${text}</span>`;
+        }
+      });
+      toggleInteractive();
+    }
+
+    // Close when clicking outside
+    document.addEventListener('click', (e) => {
+      const container = document.getElementById('dropdownContainer');
+      if (container && !container.contains(e.target) && isInteractiveOpen) {
+        toggleInteractive();
+      }
+    });
+
+    let isLoading = false;
+    function toggleGlobalLoading() {
+      isLoading = !isLoading;
+      const btn = document.getElementById('toggleLoadingBtn');
+      const btnText = document.getElementById('btnText');
+      const spinner = document.getElementById('btnSpinner');
+
+      if (isLoading) {
+        btnText.textContent = 'Simulasikan Loading (OFF)';
+        spinner.classList.remove('hidden');
+      } else {
+        btnText.textContent = 'Simulasikan Loading (ON)';
+        spinner.classList.add('hidden');
+      }
+    }
+  </script>
+</body>
+</html>
