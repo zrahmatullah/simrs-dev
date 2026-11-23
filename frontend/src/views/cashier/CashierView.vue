@@ -1215,40 +1215,41 @@ onMounted(async () => {
               class="p-2.5 bg-white border border-slate-200 rounded-lg grid grid-cols-12 gap-2 items-center text-xs"
             >
               <div class="col-span-3">
-                <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Metode</label>
-                <select
+                <BaseSelect
                   v-model="sp.metode_bayar"
-                  class="w-full p-1.5 border border-slate-200 rounded text-xs bg-white font-medium"
-                >
-                  <option value="TUNAI">Uang Tunai</option>
-                  <option value="QRIS">QRIS</option>
-                  <option value="DEBIT">Kartu Debit</option>
-                  <option value="KREDIT">Kartu Kredit</option>
-                  <option value="TRANSFER">Transfer Bank</option>
-                </select>
+                  label="Metode"
+                  :options="[
+                    { value: 'TUNAI', label: 'Uang Tunai' },
+                    { value: 'QRIS', label: 'QRIS' },
+                    { value: 'DEBIT', label: 'Kartu Debit' },
+                    { value: 'KREDIT', label: 'Kartu Kredit' },
+                    { value: 'TRANSFER', label: 'Transfer Bank' }
+                  ]"
+                  compact
+                />
               </div>
 
               <div class="col-span-4">
-                <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Nominal (Rp)</label>
+                <label class="block text-[12px] font-medium text-[#475569] mb-1">Nominal (Rp)</label>
                 <input
                   v-model.number="sp.nominal"
                   type="number"
                   min="0"
-                  class="w-full p-1.5 border border-slate-200 rounded text-xs font-mono font-bold text-sky-800"
+                  class="w-full h-9 px-3 border border-slate-200 rounded-lg text-xs font-mono font-bold text-sky-800 bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
                 />
               </div>
 
               <div class="col-span-4">
-                <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">No. Ref / Approval</label>
+                <label class="block text-[12px] font-medium text-[#475569] mb-1">No. Ref / Approval</label>
                 <input
                   v-model="sp.referensi_pembayaran"
                   type="text"
                   placeholder="Opsional / No. Ref"
-                  class="w-full p-1.5 border border-slate-200 rounded text-[11px]"
+                  class="w-full h-9 px-3 border border-slate-200 rounded-lg text-xs bg-white focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-sky-500"
                 />
               </div>
 
-              <div class="col-span-1 text-center pt-3">
+              <div class="col-span-1 text-center pt-5">
                 <button
                   v-if="splitPayments.length > 1"
                   class="text-rose-500 hover:text-rose-700 p-1"
