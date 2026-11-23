@@ -348,3 +348,118 @@ type CreatePoliRequest struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 }
+
+// -------------------------------------------------------------
+// FASE 1 DTOS
+// -------------------------------------------------------------
+
+type CreateDoctorScheduleRequest struct {
+	DoctorID  string `json:"doctor_id"`
+	PoliID    int    `json:"poli_id"`
+	DayOfWeek int    `json:"day_of_week"`
+	StartTime string `json:"start_time"`
+	EndTime   string `json:"end_time"`
+	MaxQuota  int    `json:"max_quota"`
+}
+
+type CreateDoctorLeaveRequest struct {
+	DoctorID           string  `json:"doctor_id"`
+	StartDate          string  `json:"start_date"`
+	EndDate            string  `json:"end_date"`
+	Reason             string  `json:"reason"`
+	SubstituteDoctorID *string `json:"substitute_doctor_id"`
+}
+
+type CreateInformedConsentRequest struct {
+	VisitID              string `json:"visit_id"`
+	ConsentType          string `json:"consent_type"`
+	ActionName           string `json:"action_name"`
+	RisksExplained       string `json:"risks_explained"`
+	SignerName           string `json:"signer_name"`
+	SignerRelation       string `json:"signer_relation"`
+	PatientSignatureData string `json:"patient_signature_data"`
+	DoctorSignatureData  string `json:"doctor_signature_data"`
+}
+
+type MedicineReturnItemDTO struct {
+	ItemID    int     `json:"item_id"`
+	ItemName  string  `json:"item_name"`
+	Qty       int     `json:"qty"`
+	UnitPrice float64 `json:"unit_price"`
+}
+
+type CreateMedicineReturnRequest struct {
+	VisitID        string                  `json:"visit_id"`
+	PrescriptionID *string                 `json:"prescription_id"`
+	Alasan         string                  `json:"alasan"`
+	Items          []MedicineReturnItemDTO `json:"items"`
+}
+
+type StockOpnameItemDTO struct {
+	ItemID      int    `json:"item_id"`
+	ItemName    string `json:"item_name"`
+	PhysicalQty int    `json:"physical_qty"`
+	Notes       string `json:"notes"`
+}
+
+type CreateStockOpnameRequest struct {
+	DepoType string               `json:"depo_type"` // GUDANG_UTAMA, DEPO_FARMASI
+	Notes    string               `json:"notes"`
+	Items    []StockOpnameItemDTO `json:"items"`
+}
+
+type CreateMedicineDisposalRequest struct {
+	ItemID      int    `json:"item_id"`
+	BatchNumber string `json:"batch_number"`
+	ExpiryDate  string `json:"expiry_date"`
+	Qty         int    `json:"qty"`
+	Reason      string `json:"reason"`
+	WitnessName string `json:"witness_name"`
+}
+
+type SplitPaymentItem struct {
+	MetodeBayar         string  `json:"metode_bayar"`
+	Nominal             float64 `json:"nominal"`
+	ReferensiPembayaran string  `json:"referensi_pembayaran"`
+	Catatan             string  `json:"catatan"`
+}
+
+type ProcessSplitPaymentRequest struct {
+	Payments      []SplitPaymentItem `json:"payments"`
+	PromoCode     string             `json:"promo_code,omitempty"`
+	PromoName     string             `json:"promo_name,omitempty"`
+	PromoDiscount float64            `json:"promo_discount,omitempty"`
+	UangDiterima  float64            `json:"uang_diterima,omitempty"`
+	Kembalian     float64            `json:"kembalian,omitempty"`
+}
+
+type PnLReportDTO struct {
+	TotalIncome        float64 `json:"total_income"`
+	RegistrationIncome float64 `json:"registration_income"`
+	ConsultationIncome float64 `json:"consultation_income"`
+	ProcedureIncome    float64 `json:"procedure_income"`
+	PharmacyIncome     float64 `json:"pharmacy_income"`
+	AncillaryIncome    float64 `json:"ancillary_income"`
+	PharmacyHppCost    float64 `json:"pharmacy_hpp_cost"`
+	GrossProfit        float64 `json:"gross_profit"`
+	TotalInvoicesPaid  int     `json:"total_invoices_paid"`
+}
+
+type TopDiseaseDTO struct {
+	ICD10Code   string  `json:"icd10_code"`
+	Description string  `json:"description"`
+	TotalCases  int     `json:"total_cases"`
+	Percentage  float64 `json:"percentage"`
+}
+
+type PublicDocumentVerification struct {
+	DocumentType   string `json:"document_type"`
+	DocumentNumber string `json:"document_number"`
+	PatientName    string `json:"patient_name"`
+	NoRM           string `json:"no_rm"`
+	DoctorName     string `json:"doctor_name"`
+	IssueDate      string `json:"issue_date"`
+	ClinicName     string `json:"clinic_name"`
+	Status         string `json:"status"`
+	Details        string `json:"details"`
+}

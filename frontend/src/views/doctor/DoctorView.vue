@@ -12,11 +12,12 @@ import SearchableSelect from '@/components/common/SearchableSelect.vue'
 import BaseDatePicker from '@/components/common/BaseDatePicker.vue'
 import BaseModal from '@/components/common/BaseModal.vue'
 import StatusBadge from '@/components/common/StatusBadge.vue'
+import SignaturePad from '@/components/common/SignaturePad.vue'
 import {
   Volume2, Stethoscope, ArrowLeft, CheckCircle2, Clock, FileText,
   Activity, AlertCircle, Plus, Trash2, Printer, Search, RefreshCw,
   ChevronDown, ChevronUp, Pill, ClipboardList, Send, Eye, FileCheck,
-  Building, Share2, Receipt, Calendar, User, ShieldAlert
+  Building, Share2, Receipt, Calendar, User, ShieldAlert, ShieldCheck
 } from 'lucide-vue-next'
 import type {
   Visit, VitalSign, MedicalRecord, Prescription, AncillaryOrder,
@@ -140,7 +141,7 @@ function callPatient(v: Visit) {
 // 2. ENTER EMR CLINICAL COCKPIT
 // ----------------------------------------------------
 const currentVisit = ref<Visit | null>(null)
-type EMRTab = 'vital' | 'cppt' | 'diagnosa' | 'tindakan' | 'rujuk' | 'penunjang' | 'resep' | 'surat' | 'resume'
+type EMRTab = 'vital' | 'cppt' | 'diagnosa' | 'tindakan' | 'rujuk' | 'penunjang' | 'resep' | 'surat' | 'consent' | 'resume'
 const activeTab = ref<EMRTab>('cppt')
 
 // Clinical Data for Current Visit
@@ -329,6 +330,97 @@ const resumeForm = ref({
   tgl_kontrol_ulang: new Date(Date.now() + 7 * 86400000).toISOString().substring(0, 10)
 })
 
+// Tab 10: Informed Consent Digital (Fase 1)
+const consentList = ref<any[]>([])
+const isConsentModalOpen = ref(false)
+const isPrintConsentModalOpen = ref(false)
+const selectedConsent = ref<any | null>(null)
+const signaturePadRef = ref<any | null>(null)
+const consentForm = ref({
+  consent_type: 'PERSETUJUAN_TINDAKAN',
+  action_name: '',
+  risks_explained: 'Telah dijelaskan secara lengkap mengenai indikasi medis, tata cara tindakan, risiko komplikasi yang mungkin timbul, serta alternatif terapi lainnya.',
+  signer_name: '',
+  signer_relation: 'DIRI_SENDIRI',
+  patient_signature_data: ''
+})
+
+const consentTypeOptions = [
+  { value: 'PERSETUJUAN_TINDAKAN', label: 'Persetujuan Tindakan Medis Invasif / Operatif' },
+  { value: 'PENOLAKAN_TINDAKAN', label: 'Penolakan Tindakan Medis (Informed Refusal)' },
+  { value: 'PERSETUJUAN_ANESTESI', label: 'Persetujuan Tindakan Anestesi / Sedasi' },
+  { value: 'BEDAH_MINOR', label: 'Persetujuan Bedah Minor / Ekstirpasi' }
+]
+
+const relationOptions = [
+  { value: 'DIRI_SENDIRI', label: 'Pasien Sendiri' },
+  { value: 'ORANG_TUA', label: 'Orang Tua / Wali' },
+  { value: 'SUAMI_ISTRI', label: 'Suami / Istri' },
+  { value: 'ANAK', label: 'Anak Kandung' },
+  { value: 'KELUARGA', label: 'Keluarga Lainnya' }
+]
+
+function openConsentModal() {
+  if (currentVisit.value) {
+    consentForm.value.signer_name = currentVisit.value.patient_name
+  }
+  consentForm.value.action_name = ''
+  consentForm.value.patient_signature_data = ''
+  if (signaturePadRef.value) {
+    signaturePadRef.value.clear()
+  }
+  isConsentModalOpen.value = true
+}
+
+async function saveInformedConsent() {
+  if (!consentForm.value.action_name.trim()) {
+    uiStore.showToast('Nama tindakan medis wajib diisi', 'error')
+    return
+  }
+  if (!consentForm.value.signer_name.trim()) {
+    uiStore.showToast('Nama penandatangan wajib diisi', 'error')
+    return
+  }
+  if (!consentForm.value.patient_signature_data) {
+    uiStore.showToast('Tanda tangan digital pasien / wali wajib digoreskan pada canvas', 'error')
+    return
+  }
+  if (!currentVisit.value) return
+
+  isSaving.value = true
+  try {
+    await api.post('/clinical/consents', {
+      visit_id: currentVisit.value.id,
+      consent_type: consentForm.value.consent_type,
+      action_name: consentForm.value.action_name,
+      risks_explained: consentForm.value.risks_explained,
+      signer_name: consentForm.value.signer_name,
+      signer_relation: consentForm.value.signer_relation,
+      patient_signature_data: consentForm.value.patient_signature_data,
+      doctor_signature_data: ''
+    })
+
+    uiStore.showToast('Informed consent digital berhasil diterbitkan ber-QR Code', 'success')
+    isConsentModalOpen.value = false
+
+    const res = await api.get<any[]>(`/clinical/consents/visit/${currentVisit.value.id}`)
+    consentList.value = res.data || []
+  } catch (err: any) {
+    uiStore.showToast(err.response?.data?.message || 'Gagal menyimpan informed consent', 'error')
+  } finally {
+    isSaving.value = false
+  }
+}
+
+function previewConsent(c: any) {
+  selectedConsent.value = c
+  isPrintConsentModalOpen.value = true
+}
+
+function printConsentDoc() {
+  window.print()
+}
+
 // Modals
 const isPreviewLetterModalOpen = ref(false)
 const isPreviewResumeModalOpen = ref(false)
@@ -503,6 +595,14 @@ async function loadPatientClinicalData(v: Visit) {
     }
   } catch (e) {
     activePrescription.value = null
+  }
+
+  // 7. Load Informed Consents (Fase 1)
+  try {
+    const res = await api.get<any[]>(`/clinical/consents/visit/${v.id}`)
+    consentList.value = res.data || []
+  } catch (e) {
+    consentList.value = []
   }
 
   // Pre-fill Resume Medis default values
@@ -1084,6 +1184,7 @@ onMounted(async () => {
               { id: 'penunjang', label: 'RUJUK PENUNJANG', icon: Building },
               { id: 'resep', label: 'RESEP', icon: Pill },
               { id: 'surat', label: 'SURAT', icon: FileCheck },
+              { id: 'consent', label: 'INFORMED CONSENT', icon: ShieldCheck },
               { id: 'resume', label: 'RESUME MEDIS', icon: ClipboardList }
             ]"
             :key="t.id"
@@ -1960,6 +2061,66 @@ onMounted(async () => {
       </div>
 
       <!-- ========================================================================= -->
+      <!-- TAB: INFORMED CONSENT DIGITAL (FASE 1)                                    -->
+      <!-- ========================================================================= -->
+      <div v-if="activeTab === 'consent'" class="bg-white border border-[#E2E8F0] rounded-[8px] p-4 shadow-xs space-y-4">
+        <div class="flex items-center justify-between border-b border-[#F1F5F9] pb-3">
+          <div>
+            <h2 class="text-[15px] font-bold text-[#0F172A] flex items-center gap-2">
+              <ShieldCheck class="w-4 h-4 text-emerald-600" />
+              Informed Consent Digital (Persetujuan Tindakan Medis)
+            </h2>
+            <p class="text-[12px] text-[#64748B]">Perlindungan medikolegal dengan tanda tangan digital canvas dan validasi QR Code resmi.</p>
+          </div>
+          <BaseButton variant="primary" size="sm" @click="openConsentModal">
+            <Plus class="w-3.5 h-3.5 mr-1" />
+            + Buat Informed Consent Baru
+          </BaseButton>
+        </div>
+
+        <!-- Daftar Dokumen Consent Terbit -->
+        <div v-if="consentList.length > 0" class="divide-y divide-slate-100">
+          <div
+            v-for="c in consentList"
+            :key="c.id"
+            class="py-3 flex items-center justify-between hover:bg-slate-50/60 p-2 rounded-xl transition-all"
+          >
+            <div>
+              <div class="flex items-center space-x-2">
+                <span
+                  :class="[
+                    'px-2.5 py-0.5 rounded-full text-[11px] font-bold',
+                    c.consent_type.includes('PENOLAKAN')
+                      ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                      : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  ]"
+                >
+                  {{ c.consent_type }}
+                </span>
+                <span class="font-bold text-slate-800 text-sm">{{ c.action_name }}</span>
+              </div>
+              <div class="text-xs text-slate-500 mt-1">
+                Penandatangan: <strong class="text-slate-700">{{ c.signer_name }}</strong> ({{ c.signer_relation }}) • Dokter: {{ c.doctor_name || 'dr. Pemeriksa' }} • Token: <code class="text-sky-600 font-mono">{{ c.qr_code_token }}</code>
+              </div>
+            </div>
+
+            <div class="flex items-center space-x-2">
+              <BaseButton variant="outline" size="sm" @click="previewConsent(c)">
+                <Printer class="w-3.5 h-3.5 mr-1" />
+                Cetak Lembar Informed Consent
+              </BaseButton>
+            </div>
+          </div>
+        </div>
+
+        <div v-else class="text-center py-10 bg-slate-50 border border-dashed border-slate-200 rounded-2xl">
+          <ShieldCheck class="w-10 h-10 text-slate-300 mx-auto mb-2" />
+          <p class="text-sm font-semibold text-slate-700">Belum Ada Formulir Informed Consent</p>
+          <p class="text-xs text-slate-400 mt-0.5">Klik tombol di atas untuk membuat persetujuan / penolakan tindakan medis baru.</p>
+        </div>
+      </div>
+
+      <!-- ========================================================================= -->
       <!-- TAB 9: RESUME MEDIS RAWAT JALAN                                           -->
       <!-- ========================================================================= -->
       <div v-if="activeTab === 'resume'" class="bg-white border border-[#E2E8F0] rounded-[8px] p-4 shadow-xs space-y-4">
@@ -2247,6 +2408,170 @@ onMounted(async () => {
         <BaseButton variant="outline" class="w-full" @click="isBillingBreakdownOpen = false">
           Tutup Rincian
         </BaseButton>
+      </template>
+    </BaseModal>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL 4: BUAT INFORMED CONSENT DIGITAL (FASE 1)                           -->
+    <!-- ========================================================================= -->
+    <BaseModal
+      v-model="isConsentModalOpen"
+      title="Penerbitan Informed Consent Digital (Persetujuan Tindakan Medis)"
+      max-width="3xl"
+    >
+      <div class="space-y-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <BaseSelect
+            v-model="consentForm.consent_type"
+            label="Jenis Formulir Persetujuan / Penolakan *"
+            :options="consentTypeOptions"
+          />
+
+          <BaseInput
+            v-model="consentForm.action_name"
+            label="Nama Tindakan / Prosedur Medis *"
+            placeholder="Contoh: Ekstirpasi Kista Ateroma / Jahit Luka / Bedah Minor"
+          />
+        </div>
+
+        <div>
+          <label class="text-xs font-semibold text-slate-700 block mb-1">
+            Penjelasan Indikasi, Prosedur & Risiko Komplikasi Klinis *
+          </label>
+          <textarea
+            v-model="consentForm.risks_explained"
+            rows="3"
+            class="w-full p-2.5 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-sky-500 bg-white"
+            placeholder="Tuliskan penjelasan risiko, komplikasi, dan tata cara tindakan yang telah diinformasikan ke pasien..."
+          ></textarea>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-200">
+          <BaseInput
+            v-model="consentForm.signer_name"
+            label="Nama Lengkap Penandatangan *"
+            placeholder="Nama Pasien atau Keluarga Penanggung Jawab"
+          />
+
+          <BaseSelect
+            v-model="consentForm.signer_relation"
+            label="Hubungan dengan Pasien *"
+            :options="relationOptions"
+          />
+        </div>
+
+        <!-- HTML5 Canvas Signature Pad -->
+        <SignaturePad
+          ref="signaturePadRef"
+          label="Goreskan Tanda Tangan Pasien / Wali Penanggung Jawab *"
+          @update:signature="val => consentForm.patient_signature_data = val"
+        />
+      </div>
+
+      <template #footer>
+        <div class="flex items-center justify-end space-x-3 w-full">
+          <BaseButton variant="outline" @click="isConsentModalOpen = false">
+            Batal
+          </BaseButton>
+          <BaseButton variant="primary" :loading="isSaving" @click="saveInformedConsent">
+            Simpan & Terbitkan Informed Consent
+          </BaseButton>
+        </div>
+      </template>
+    </BaseModal>
+
+    <!-- ========================================================================= -->
+    <!-- MODAL 5: CETAK LEMBAR INFORMED CONSENT RESMI BER-QR                       -->
+    <!-- ========================================================================= -->
+    <BaseModal
+      v-model="isPrintConsentModalOpen"
+      title="Lembar Informed Consent Resmi (Dokumen Medikolegal)"
+      max-width="3xl"
+    >
+      <div v-if="selectedConsent" id="printable-consent" class="p-6 bg-white text-slate-900 space-y-4 border border-slate-200 rounded-2xl">
+        <!-- KOP SURAT KLINIK -->
+        <div class="border-b-2 border-slate-900 pb-3 text-center">
+          <h2 class="text-lg font-black uppercase tracking-wider text-sky-700">RUMAH SAKIT & KLINIK UTAMA SIMRS-ASOY</h2>
+          <p class="text-xs text-slate-500">Jl. Sehat Bersama No. 12, Jakarta Selatan • Telp: (021) 7890-1234 • Izin Faskes: 445/RS-ASOY/2026</p>
+          <h3 class="text-sm font-bold uppercase underline mt-2 tracking-wide text-slate-800">
+            LEMBAR {{ selectedConsent.consent_type }}
+          </h3>
+          <span class="text-[11px] text-slate-500 font-mono">Kode Validasi: {{ selectedConsent.qr_code_token }}</span>
+        </div>
+
+        <!-- IDENTITAS PASIEN -->
+        <div class="grid grid-cols-2 gap-2 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
+          <div><span class="text-slate-500">No. Rekam Medis:</span> <strong class="font-mono text-sky-700">{{ selectedConsent.no_rm }}</strong></div>
+          <div><span class="text-slate-500">No. Rawat Kunjungan:</span> <strong class="font-mono">{{ selectedConsent.no_rawat }}</strong></div>
+          <div><span class="text-slate-500">Nama Pasien:</span> <strong>{{ selectedConsent.patient_name }}</strong></div>
+          <div><span class="text-slate-500">Dokter Penanggung Jawab:</span> <strong>{{ selectedConsent.doctor_name || 'dr. Spesialis' }}</strong></div>
+        </div>
+
+        <!-- ISI PERNYATAAN PERSETUJUAN -->
+        <div class="space-y-3 text-xs text-slate-700 leading-relaxed">
+          <p>
+            Yang bertanda tangan di bawah ini, <strong>{{ selectedConsent.signer_name }}</strong>, bertindak sebagai <strong>{{ selectedConsent.signer_relation }}</strong> dari pasien di atas, menyatakan telah menerima penjelasan lengkap mengenai:
+          </p>
+          <div class="bg-sky-50 border border-sky-100 p-3 rounded-xl">
+            <div class="font-bold text-slate-800">Tindakan Medis yang Diberikan:</div>
+            <div class="text-sky-800 font-semibold text-sm">{{ selectedConsent.action_name }}</div>
+            <div class="mt-2 font-bold text-slate-800">Penjelasan Risiko & Komplikasi:</div>
+            <div class="text-slate-600 italic">{{ selectedConsent.risks_explained }}</div>
+          </div>
+          <p>
+            Dengan ini menyatakan <strong>SETUJU / MEMAHAMI SEPENUHNYA</strong> untuk dilakukan tindakan medis tersebut di atas demi keselamatan dan pemulihan kesehatan pasien.
+          </p>
+        </div>
+
+        <!-- TANDA TANGAN PASIEN & DOKTER + QR CODE -->
+        <div class="grid grid-cols-3 gap-4 pt-4 border-t border-slate-200 text-center text-xs">
+          <div>
+            <div class="text-slate-500 mb-1">Pasien / Wali Penanggung Jawab</div>
+            <div class="h-20 flex items-center justify-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50 p-1">
+              <img
+                v-if="selectedConsent.patient_signature_data"
+                :src="selectedConsent.patient_signature_data"
+                alt="Tanda Tangan Pasien"
+                class="max-h-16 max-w-full object-contain"
+              />
+              <span v-else class="text-[10px] text-slate-400 italic">TTE Tercatat</span>
+            </div>
+            <div class="font-bold text-slate-800 mt-1">{{ selectedConsent.signer_name }}</div>
+          </div>
+
+          <div class="flex flex-col items-center justify-center p-2 border border-slate-200 rounded-xl bg-slate-50">
+            <div class="text-[10px] font-bold text-slate-500 uppercase mb-1">Scan QR Verifikasi Resmi</div>
+            <div class="w-16 h-16 bg-white border border-slate-300 rounded-lg flex items-center justify-center p-1 shadow-xs">
+              <div class="text-[8px] font-mono text-slate-400 text-center leading-tight">
+                [QR CODE]<br>{{ selectedConsent.qr_code_token.substring(0, 12) }}
+              </div>
+            </div>
+            <div class="text-[9px] text-emerald-600 font-bold mt-1">SAH TTE SIMRS</div>
+          </div>
+
+          <div>
+            <div class="text-slate-500 mb-1">Dokter Penanggung Jawab</div>
+            <div class="h-20 flex items-center justify-center border border-dashed border-slate-200 rounded-xl bg-slate-50/50 p-1">
+              <div class="text-xs font-serif italic text-sky-800">Signed Digitally by E-System</div>
+            </div>
+            <div class="font-bold text-slate-800 mt-1">{{ selectedConsent.doctor_name || 'dr. Pemeriksa' }}</div>
+          </div>
+        </div>
+      </div>
+
+      <template #footer>
+        <div class="flex items-center justify-between w-full">
+          <span class="text-xs text-slate-500">Dokumen memenuhi standar rekam medis Permenkes No. 24/2022</span>
+          <div class="flex items-center space-x-3">
+            <BaseButton variant="outline" @click="isPrintConsentModalOpen = false">
+              Tutup
+            </BaseButton>
+            <BaseButton variant="primary" @click="printConsentDoc">
+              <Printer class="w-4 h-4 mr-1.5" />
+              Cetak Dokumen
+            </BaseButton>
+          </div>
+        </div>
       </template>
     </BaseModal>
   </div>

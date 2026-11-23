@@ -108,3 +108,36 @@ func (h *PharmacyHandler) DispensePrescription(w http.ResponseWriter, r *http.Re
 
 	RespondSuccess(w, "Obat berhasil diserahkan dan stok depo farmasi otomatis terpotong", nil)
 }
+
+// -------------------------------------------------------------
+// Retur Obat Pasien Handlers (Fase 1)
+// -------------------------------------------------------------
+
+func (h *PharmacyHandler) CreateMedicineReturn(w http.ResponseWriter, r *http.Request) {
+	var req domain.CreateMedicineReturnRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		RespondBadRequest(w, "Format request body tidak valid", err.Error())
+		return
+	}
+
+	claims := middleware.GetCurrentUser(r)
+	ret, err := h.pharmacyUsecase.CreateMedicineReturn(req, claims.UserID, claims.Username)
+	if err != nil {
+		RespondBadRequest(w, err.Error(), nil)
+		return
+	}
+	RespondCreated(w, "Retur obat pasien berhasil diproses dan stok depo otomatis dikembalikan", ret)
+}
+
+func (h *PharmacyHandler) GetMedicineReturns(w http.ResponseWriter, r *http.Request) {
+	search := r.URL.Query().Get("search")
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	list, total, err := h.pharmacyUsecase.GetMedicineReturns(search, page, limit)
+	if err != nil {
+		RespondInternalError(w, err)
+		return
+	}
+	RespondMeta(w, "Daftar retur obat berhasil diambil", list, page, limit, total)
+}

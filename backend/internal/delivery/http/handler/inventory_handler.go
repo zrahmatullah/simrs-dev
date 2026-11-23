@@ -225,3 +225,63 @@ func (h *InventoryHandler) CreateGRN(w http.ResponseWriter, r *http.Request) {
 	}
 	RespondCreated(w, "Penerimaan barang (GRN) berhasil dicatat dan stok gudang bertambah", grn)
 }
+
+// -------------------------------------------------------------
+// Stock Opname & Pemusnahan Obat Handlers (Fase 1)
+// -------------------------------------------------------------
+
+func (h *InventoryHandler) CreateStockOpname(w http.ResponseWriter, r *http.Request) {
+	var req domain.CreateStockOpnameRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		RespondBadRequest(w, "Format request body tidak valid", err.Error())
+		return
+	}
+
+	claims := middleware.GetCurrentUser(r)
+	so, err := h.invUsecase.CreateStockOpname(req, claims.UserID, claims.Username)
+	if err != nil {
+		RespondBadRequest(w, err.Error(), nil)
+		return
+	}
+	RespondCreated(w, "Stock opname berhasil disimpan dan penyesuaian stok telah diterapkan", so)
+}
+
+func (h *InventoryHandler) GetStockOpnames(w http.ResponseWriter, r *http.Request) {
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	list, total, err := h.invUsecase.GetStockOpnames(page, limit)
+	if err != nil {
+		RespondInternalError(w, err)
+		return
+	}
+	RespondMeta(w, "Data stock opname berhasil diambil", list, page, limit, total)
+}
+
+func (h *InventoryHandler) CreateMedicineDisposal(w http.ResponseWriter, r *http.Request) {
+	var req domain.CreateMedicineDisposalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		RespondBadRequest(w, "Format request body tidak valid", err.Error())
+		return
+	}
+
+	claims := middleware.GetCurrentUser(r)
+	disp, err := h.invUsecase.CreateMedicineDisposal(req, claims.UserID, claims.Username)
+	if err != nil {
+		RespondBadRequest(w, err.Error(), nil)
+		return
+	}
+	RespondCreated(w, "Berita acara pemusnahan obat berhasil diterbitkan dan stok gudang terpotong", disp)
+}
+
+func (h *InventoryHandler) GetMedicineDisposals(w http.ResponseWriter, r *http.Request) {
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	list, total, err := h.invUsecase.GetMedicineDisposals(page, limit)
+	if err != nil {
+		RespondInternalError(w, err)
+		return
+	}
+	RespondMeta(w, "Data pemusnahan obat berhasil diambil", list, page, limit, total)
+}

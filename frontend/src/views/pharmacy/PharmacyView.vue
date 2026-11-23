@@ -12,14 +12,14 @@ import StatusBadge from '@/components/common/StatusBadge.vue'
 import {
   Pill, FileText, CheckCircle2, AlertTriangle, BarChart3,
   Clock, Printer, RefreshCw, Search, ArrowRightLeft, ShieldCheck,
-  TrendingUp, Boxes, Package
+  TrendingUp, Boxes, Package, RotateCcw, Plus, Trash2
 } from 'lucide-vue-next'
 import type { Prescription, PrescriptionItem, InventoryItem, StockMutation } from '@/types'
 
 const uiStore = useUiStore()
 const patientContext = usePatientContextStore()
 
-type PharmacyTab = 'resep' | 'kartu_stok' | 'grafik_order' | 'monitoring'
+type PharmacyTab = 'resep' | 'kartu_stok' | 'grafik_order' | 'monitoring' | 'retur'
 const activeTab = ref<PharmacyTab>('resep')
 
 // ----------------------------------------------------
@@ -202,10 +202,121 @@ const monitoringSummary = computed(() => {
   return { totalItems, lowStockCount, criticalCount }
 })
 
+// ----------------------------------------------------
+// TAB 5: RETUR OBAT PASIEN (FASE 1)
+// ----------------------------------------------------
+const medicineReturns = ref<any[]>([])
+const isLoadingReturns = ref(false)
+const searchReturns = ref('')
+const isReturnModalOpen = ref(false)
+const isSubmittingReturn = ref(false)
+const selectedPrescriptionForReturn = ref<Prescription | null>(null)
+const returnReason = ref('Pasien alergi / penyesuaian dosis terapi dokter')
+const returnItems = ref<{
+  item_id: number
+  item_name: string
+  max_qty: number
+  qty: number
+  unit_price: number
+  subtotal: number
+}[]>([])
+
+const returnCols: Column[] = [
+  { key: 'nomor_retur', label: 'No. Retur', width: '150px' },
+  { key: 'created_at', label: 'Waktu Retur', width: '150px' },
+  { key: 'no_rawat', label: 'No. Rawat', width: '140px' },
+  { key: 'patient_name', label: 'Nama Pasien' },
+  { key: 'alasan', label: 'Alasan Retur' },
+  { key: 'total_refund', label: 'Nilai Pengembalian', align: 'right', width: '160px' },
+  { key: 'created_by', label: 'Petugas Retur', width: '140px' },
+  { key: 'status', label: 'Status', align: 'center', width: '120px' },
+  { key: 'actions', label: 'Aksi', align: 'right', width: '120px' },
+]
+
+async function loadReturns() {
+  isLoadingReturns.value = true
+  try {
+    const res = await api.get<any[]>('/pharmacy/returns', { search: searchReturns.value })
+    if (res.data) {
+      medicineReturns.value = res.data
+    }
+  } catch (err: any) {
+    console.warn('Gagal memuat retur', err)
+  } finally {
+    isLoadingReturns.value = false
+  }
+}
+
+function openReturnModal(p: Prescription) {
+  selectedPrescriptionForReturn.value = p
+  returnReason.value = 'Pasien alergi / penyesuaian dosis terapi dokter'
+  returnItems.value = (p.items || []).map(it => ({
+    item_id: it.item_id,
+    item_name: it.item_name,
+    max_qty: it.jumlah,
+    qty: 0,
+    unit_price: it.harga_satuan || 0,
+    subtotal: 0
+  }))
+  isReturnModalOpen.value = true
+}
+
+const totalReturnAmount = computed(() => {
+  return returnItems.value.reduce((acc, it) => acc + (it.qty * it.unit_price), 0)
+})
+
+async function submitReturn() {
+  if (!selectedPrescriptionForReturn.value) return
+  const validItems = returnItems.value.filter(it => it.qty > 0)
+  if (validItems.length === 0) {
+    uiStore.showToast('Masukkan minimal 1 jumlah obat yang ingin diretur!', 'warning')
+    return
+  }
+  for (const it of validItems) {
+    if (it.qty > it.max_qty) {
+      uiStore.showToast(`Jumlah retur ${it.item_name} tidak boleh melebihi resep (${it.max_qty})!`, 'error')
+      return
+    }
+  }
+
+  isSubmittingReturn.value = true
+  try {
+    await api.post('/pharmacy/returns', {
+      visit_id: selectedPrescriptionForReturn.value.visit_id,
+      prescription_id: selectedPrescriptionForReturn.value.id,
+      alasan: returnReason.value,
+      items: validItems.map(it => ({
+        item_id: it.item_id,
+        item_name: it.item_name,
+        qty: Number(it.qty),
+        unit_price: Number(it.unit_price)
+      }))
+    })
+    uiStore.showToast('Retur obat berhasil! Stok depo bertambah & tagihan kasir berkurang otomatis.', 'success')
+    isReturnModalOpen.value = false
+    loadReturns()
+    loadPrescriptions()
+    loadItems()
+  } catch (err: any) {
+    uiStore.showToast(err.message || 'Gagal memproses retur obat', 'error')
+  } finally {
+    isSubmittingReturn.value = false
+  }
+}
+
+const selectedReturnForDetail = ref<any | null>(null)
+const isReturnDetailModalOpen = ref(false)
+
+function viewReturnDetail(ret: any) {
+  selectedReturnForDetail.value = ret
+  isReturnDetailModalOpen.value = true
+}
+
 onMounted(() => {
   loadPrescriptions()
   loadItems()
   loadMutations()
+  loadReturns()
 })
 </script>
 
@@ -242,19 +353,20 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- 4 Pharmacy Tabs Navigation -->
-    <div class="flex items-center gap-2 border-b border-[#E2E8F0] pb-2">
+    <!-- 5 Pharmacy Tabs Navigation -->
+    <div class="flex items-center gap-2 border-b border-[#E2E8F0] pb-2 overflow-x-auto">
       <button
         v-for="t in [
           { id: 'resep', label: '1. Antrean e-Resep & Telaah', icon: FileText },
           { id: 'kartu_stok', label: '2. Kartu Stok Semua Barang', icon: ArrowRightLeft },
           { id: 'grafik_order', label: '3. Visualisasi Obat Paling Banyak Order', icon: BarChart3 },
-          { id: 'monitoring', label: '4. Monitoring Stok & Safety Stock', icon: Boxes }
+          { id: 'monitoring', label: '4. Monitoring Stok & Safety Stock', icon: Boxes },
+          { id: 'retur', label: '5. Retur Obat Pasien', icon: RotateCcw }
         ]"
         :key="t.id"
         type="button"
         :class="[
-          'px-3.5 py-2 rounded-[6px] text-[13px] font-bold transition-all flex items-center gap-2',
+          'px-3.5 py-2 rounded-[6px] text-[13px] font-bold transition-all flex items-center gap-2 shrink-0',
           activeTab === t.id
             ? 'bg-[#0284C7] text-white shadow-xs'
             : 'text-[#475569] hover:bg-[#F1F5F9] hover:text-[#0F172A]'
@@ -377,6 +489,17 @@ onMounted(() => {
               >
                 <Printer class="w-3.5 h-3.5 mr-1" />
                 Etiket
+              </BaseButton>
+
+              <BaseButton
+                v-if="row.status === 'SELESAI' || row.status === 'TELAAH_OK'"
+                variant="outline"
+                size="sm"
+                class="!text-amber-700 !border-amber-300 hover:!bg-amber-50"
+                @click="openReturnModal(row)"
+              >
+                <RotateCcw class="w-3.5 h-3.5 mr-1" />
+                Retur Obat
               </BaseButton>
             </div>
           </template>
@@ -598,6 +721,244 @@ onMounted(() => {
         </table>
       </div>
     </div>
+
+    <!-- ========================================================================= -->
+    <!-- TAB 5: RETUR OBAT PASIEN (FASE 1)                                         -->
+    <!-- ========================================================================= -->
+    <div v-if="activeTab === 'retur'" class="space-y-4">
+      <div class="p-3 rounded-[6px] bg-[#FEF3C7] border border-[#FDE68A] text-[#92400E] text-[12px] flex items-center gap-2">
+        <RotateCcw class="w-4 h-4 text-[#D97706] shrink-0" />
+        <span>
+          <strong>Retur Terintegrasi ACID:</strong> Pengembalian obat pasien secara otomatis memulihkan stok fisik di Depo Farmasi, mencatat riwayat kartu stok mutasi (IN_RETUR), serta memotong sisa tagihan di kasir secara langsung dengan row-level locking.
+        </span>
+      </div>
+
+      <div class="bg-white p-3 rounded-[8px] border border-[#E2E8F0] shadow-xs flex flex-wrap items-center justify-between gap-3">
+        <div class="flex-1 min-w-[240px]">
+          <BaseInput
+            v-model="searchReturns"
+            placeholder="Cari No. Retur, Nama Pasien, No. RM..."
+            compact
+            @keyup.enter="loadReturns"
+          >
+            <template #prefix>
+              <Search class="w-4 h-4 text-[#94A3B8]" />
+            </template>
+          </BaseInput>
+        </div>
+
+        <div class="flex items-center gap-2">
+          <BaseButton variant="outline" size="sm" @click="loadReturns">
+            <RefreshCw class="w-3.5 h-3.5 mr-1" />
+            Segarkan
+          </BaseButton>
+        </div>
+      </div>
+
+      <div class="bg-white border border-[#E2E8F0] rounded-[8px] shadow-xs overflow-hidden">
+        <DataTable
+          :columns="returnCols"
+          :data="medicineReturns"
+          :loading="isLoadingReturns"
+        >
+          <template #cell-nomor_retur="{ row }">
+            <span class="font-mono font-bold text-[12px] text-[#0284C7] bg-[#F0F9FF] px-2 py-0.5 rounded border border-[#BAE6FD]">
+              {{ row.nomor_retur }}
+            </span>
+          </template>
+
+          <template #cell-created_at="{ row }">
+            <span class="text-[12px] text-[#475569]">
+              {{ new Date(row.created_at).toLocaleString('id-ID', { dateStyle: 'medium', timeStyle: 'short' }) }}
+            </span>
+          </template>
+
+          <template #cell-no_rawat="{ row }">
+            <span class="font-mono text-[12px] font-semibold text-[#334155]">{{ row.no_rawat || '-' }}</span>
+          </template>
+
+          <template #cell-patient_name="{ row }">
+            <span class="font-bold text-[13px] text-[#0F172A]">{{ row.patient_name }}</span>
+          </template>
+
+          <template #cell-alasan="{ row }">
+            <span class="text-[12px] text-[#475569] italic">{{ row.alasan || '-' }}</span>
+          </template>
+
+          <template #cell-total_refund="{ row }">
+            <span class="font-mono font-bold text-[13px] text-emerald-600">
+              Rp {{ Number(row.total_refund || 0).toLocaleString('id-ID') }}
+            </span>
+          </template>
+
+          <template #cell-created_by="{ row }">
+            <span class="text-[12px] text-[#64748B]">{{ row.created_by || 'Apoteker' }}</span>
+          </template>
+
+          <template #cell-status="{ row }">
+            <span class="px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-100 text-emerald-800">
+              {{ row.status || 'SELESAI' }}
+            </span>
+          </template>
+
+          <template #cell-actions="{ row }">
+            <BaseButton variant="outline" size="sm" @click="viewReturnDetail(row)">
+              <FileText class="w-3.5 h-3.5 mr-1" />
+              Detail
+            </BaseButton>
+          </template>
+        </DataTable>
+      </div>
+    </div>
+
+    <!-- MODAL: Buat Retur Obat Pasien -->
+    <BaseModal
+      v-model="isReturnModalOpen"
+      title="Form Pengembalian (Retur) Obat Pasien"
+      max-width="2xl"
+    >
+      <div v-if="selectedPrescriptionForReturn" class="space-y-4 text-[13px]">
+        <div class="p-3 bg-[#F8FAFC] rounded border border-[#E2E8F0] grid grid-cols-2 gap-2 text-[12px]">
+          <div><span class="text-[#64748B]">No. Resep:</span> <strong class="font-mono text-[#0284C7]">{{ selectedPrescriptionForReturn.nomor_resep }}</strong></div>
+          <div><span class="text-[#64748B]">Nama Pasien:</span> <strong>{{ selectedPrescriptionForReturn.patient_name }} ({{ selectedPrescriptionForReturn.no_rm }})</strong></div>
+          <div><span class="text-[#64748B]">Dokter Penulis:</span> <strong>{{ selectedPrescriptionForReturn.doctor_name }}</strong></div>
+          <div><span class="text-[#64748B]">Status Resep:</span> <strong class="text-emerald-700">{{ selectedPrescriptionForReturn.status }}</strong></div>
+        </div>
+
+        <div>
+          <label class="text-[12px] font-bold text-[#334155] block mb-1">Alasan Retur Obat *</label>
+          <input
+            v-model="returnReason"
+            type="text"
+            placeholder="Misal: Pasien alergi, dokter mengganti regimen terapi, dll."
+            class="w-full p-2.5 text-[12px] border border-[#CBD5E1] rounded outline-none focus:border-[#0284C7]"
+          />
+        </div>
+
+        <div>
+          <label class="text-[12px] font-bold text-[#334155] block mb-1.5">Pilih Item & Jumlah Obat yang Diretur</label>
+          <div class="border border-[#E2E8F0] rounded overflow-hidden">
+            <table class="w-full text-left text-[12px]">
+              <thead class="bg-[#F8FAFC] text-[#475569] border-b">
+                <tr>
+                  <th class="p-2.5 font-bold">Nama Obat</th>
+                  <th class="p-2.5 font-bold text-center">Jumlah e-Resep</th>
+                  <th class="p-2.5 font-bold text-center w-28">Jumlah Retur</th>
+                  <th class="p-2.5 font-bold text-right">Harga Satuan</th>
+                  <th class="p-2.5 font-bold text-right">Subtotal Refund</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-[#F1F5F9]">
+                <tr v-for="it in returnItems" :key="it.item_id" class="hover:bg-[#F8FAFC]">
+                  <td class="p-2.5 font-semibold text-[#0F172A]">{{ it.item_name }}</td>
+                  <td class="p-2.5 text-center font-mono font-bold text-[#475569]">{{ it.max_qty }}</td>
+                  <td class="p-2.5 text-center">
+                    <input
+                      v-model.number="it.qty"
+                      type="number"
+                      min="0"
+                      :max="it.max_qty"
+                      class="w-20 p-1 text-center font-mono font-bold border border-[#CBD5E1] rounded text-[13px] text-[#0284C7] focus:border-[#0284C7]"
+                    />
+                  </td>
+                  <td class="p-2.5 text-right font-mono text-[#64748B]">
+                    Rp {{ Number(it.unit_price).toLocaleString('id-ID') }}
+                  </td>
+                  <td class="p-2.5 text-right font-mono font-bold text-emerald-700">
+                    Rp {{ Number(it.qty * it.unit_price).toLocaleString('id-ID') }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-between p-3 rounded bg-emerald-50 border border-emerald-200">
+          <span class="text-[13px] font-bold text-emerald-900">Total Nilai Pengembalian (Refund):</span>
+          <span class="text-[16px] font-extrabold font-mono text-emerald-800">
+            Rp {{ Number(totalReturnAmount).toLocaleString('id-ID') }}
+          </span>
+        </div>
+
+        <div class="p-2.5 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[11px] space-y-1">
+          <p>⚠️ <strong>Catatan Row Locking ACID:</strong></p>
+          <p>• Stok fisik di Depo Farmasi akan bertambah secara instan.</p>
+          <p>• Jika invoice kasir sudah terbit, total tagihan kasir pasien otomatis dipotong sejumlah refund di atas.</p>
+        </div>
+      </div>
+
+      <template #footer>
+        <BaseButton variant="outline" @click="isReturnModalOpen = false">Batal</BaseButton>
+        <BaseButton
+          variant="primary"
+          :loading="isSubmittingReturn"
+          :disabled="totalReturnAmount <= 0"
+          @click="submitReturn"
+        >
+          <RotateCcw class="w-4 h-4 mr-1.5" />
+          Proses Retur & Kembalikan Stok
+        </BaseButton>
+      </template>
+    </BaseModal>
+
+    <!-- MODAL: Detail / Cetak Bukti Retur -->
+    <BaseModal
+      v-model="isReturnDetailModalOpen"
+      title="Bukti Pengembalian Obat Pasien (Retur)"
+      max-width="lg"
+    >
+      <div v-if="selectedReturnForDetail" class="p-4 bg-white border border-[#CBD5E1] rounded space-y-3 font-sans text-[12px]">
+        <div class="border-b border-[#0F172A] pb-2 text-center">
+          <h3 class="font-bold text-[14px] uppercase text-[#0284C7]">BUKTI RETUR FARMASI RESMI</h3>
+          <p class="text-[10px] text-[#475569]">KLINIK & RUMAH SAKIT SIMRS-ASOY • Jl. Kesehatan No. 10 Yogyakarta</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-[11px] pt-1">
+          <div><span class="text-[#64748B]">No. Retur:</span> <strong class="font-mono text-[#0284C7]">{{ selectedReturnForDetail.nomor_retur }}</strong></div>
+          <div><span class="text-[#64748B]">Waktu:</span> <strong>{{ new Date(selectedReturnForDetail.created_at).toLocaleString('id-ID') }}</strong></div>
+          <div><span class="text-[#64748B]">Pasien:</span> <strong>{{ selectedReturnForDetail.patient_name }}</strong></div>
+          <div><span class="text-[#64748B]">No. Rawat:</span> <strong class="font-mono">{{ selectedReturnForDetail.no_rawat }}</strong></div>
+          <div><span class="text-[#64748B]">Petugas Retur:</span> <strong>{{ selectedReturnForDetail.created_by }}</strong></div>
+          <div><span class="text-[#64748B]">Alasan:</span> <strong class="italic">{{ selectedReturnForDetail.alasan }}</strong></div>
+        </div>
+
+        <div class="border border-[#CBD5E1] rounded overflow-hidden">
+          <table class="w-full text-left text-[11px]">
+            <thead class="bg-[#F8FAFC] border-b">
+              <tr>
+                <th class="p-2">Item Obat</th>
+                <th class="p-2 text-center">Qty</th>
+                <th class="p-2 text-right">Harga Satuan</th>
+                <th class="p-2 text-right">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-[#F1F5F9]">
+              <tr v-for="it in (selectedReturnForDetail.items || [])" :key="it.id">
+                <td class="p-2 font-medium">{{ it.item_name }}</td>
+                <td class="p-2 text-center font-mono font-bold">{{ it.qty }}</td>
+                <td class="p-2 text-right font-mono">Rp {{ Number(it.unit_price).toLocaleString('id-ID') }}</td>
+                <td class="p-2 text-right font-mono font-bold">Rp {{ Number(it.subtotal).toLocaleString('id-ID') }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex justify-between items-center pt-2 border-t">
+          <span class="font-bold text-[13px]">Total Nilai Refund:</span>
+          <span class="font-extrabold font-mono text-[15px] text-emerald-700">
+            Rp {{ Number(selectedReturnForDetail.total_refund).toLocaleString('id-ID') }}
+          </span>
+        </div>
+      </div>
+
+      <template #footer>
+        <BaseButton variant="outline" @click="isReturnDetailModalOpen = false">Tutup</BaseButton>
+        <BaseButton variant="primary" @click="printEtiket">
+          <Printer class="w-4 h-4 mr-1.5" />
+          Cetak Bukti Retur
+        </BaseButton>
+      </template>
+    </BaseModal>
 
     <!-- MODAL: Telaah Resep Farmasi -->
     <BaseModal

@@ -392,3 +392,264 @@ func (r *BillingRepository) GetShiftHistory(kasirID string, limit int) ([]domain
 	err := r.db.Select(&list, query, kasirID, limit)
 	return list, err
 }
+
+// -------------------------------------------------------------
+// Split Payment Kasir & Reports (Fase 1)
+// -------------------------------------------------------------
+
+func (r *BillingRepository) AddSplitPayments(invoiceID string, payments []domain.SplitPaymentItem, promoCode, promoName string, promoDiscount, uangDiterima, kembalian float64, currentUserID, currentUsername string) (*domain.Invoice, error) {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	// 1. Get current invoice with row lock
+	var inv domain.Invoice
+	err = tx.Get(&inv, "SELECT id, visit_id, subtotal, diskon, pajak, total_tagihan, total_terbayar, sisa_tagihan FROM invoices WHERE id = $1 FOR UPDATE", invoiceID)
+	if err != nil {
+		return nil, err
+	}
+
+	newDiskon := inv.Diskon
+	if promoDiscount > 0 {
+		newDiskon += promoDiscount
+	}
+	newTotalTagihan := inv.Subtotal - newDiskon + inv.Pajak
+	if newTotalTagihan < 0 {
+		newTotalTagihan = 0
+	}
+
+	var totalPaidNet float64
+	dateStr := time.Now().Format("20060102")
+
+	for i, pay := range payments {
+		var trxCount int
+		_ = tx.Get(&trxCount, "SELECT COUNT(*) FROM billing_payments WHERE nomor_transaksi LIKE $1", fmt.Sprintf("TRX-%s-%%", dateStr))
+		nomorTrx := fmt.Sprintf("TRX-%s-%03d", dateStr, trxCount+1+i)
+
+		payUangDiterima := pay.Nominal
+		payKembalian := 0.0
+		if pay.MetodeBayar == "TUNAI" && uangDiterima > 0 {
+			payUangDiterima = uangDiterima
+			payKembalian = kembalian
+		}
+
+		query := `
+			INSERT INTO billing_payments (nomor_transaksi, invoice_id, kasir_id, nominal, metode_bayar,
+			                              referensi_pembayaran, catatan, uang_diterima, kembalian, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+		`
+		_, err = tx.Exec(query, nomorTrx, invoiceID, currentUserID, pay.Nominal, pay.MetodeBayar,
+			pay.ReferensiPembayaran, pay.Catatan, payUangDiterima, payKembalian)
+		if err != nil {
+			return nil, err
+		}
+
+		// Update shift
+		paidNet := pay.Nominal
+		if pay.MetodeBayar == "TUNAI" {
+			_, _ = tx.Exec("UPDATE cashier_shifts SET total_tunai_sistem = total_tunai_sistem + $1, updated_at = NOW() WHERE kasir_id = $2 AND status = 'OPEN'", paidNet, currentUserID)
+		} else {
+			_, _ = tx.Exec("UPDATE cashier_shifts SET total_non_tunai_sistem = total_non_tunai_sistem + $1, updated_at = NOW() WHERE kasir_id = $2 AND status = 'OPEN'", paidNet, currentUserID)
+		}
+
+		totalPaidNet += paidNet
+	}
+
+	newTerbayar := inv.TotalTerbayar + totalPaidNet
+	newSisa := newTotalTagihan - newTerbayar
+	newStatus := "BELUM_BAYAR"
+	if newSisa <= 0 {
+		newSisa = 0
+		newStatus = "LUNAS"
+	}
+
+	_, err = tx.Exec(`
+		UPDATE invoices
+		SET diskon = $1, total_tagihan = $2, total_terbayar = $3, sisa_tagihan = $4, status = $5,
+		    promo_code = CASE WHEN $6 != '' THEN $6 ELSE promo_code END,
+		    promo_name = CASE WHEN $7 != '' THEN $7 ELSE promo_name END,
+		    updated_at = NOW()
+		WHERE id = $8
+	`, newDiskon, newTotalTagihan, newTerbayar, newSisa, newStatus, promoCode, promoName, invoiceID)
+	if err != nil {
+		return nil, err
+	}
+
+	if newStatus == "LUNAS" && inv.VisitID != "" {
+		_, _ = tx.Exec("UPDATE visits SET status = 'SELESAI', waktu_selesai = NOW(), updated_at = NOW() WHERE id = $1", inv.VisitID)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+
+	return r.GetInvoiceByID(invoiceID)
+}
+
+func (r *BillingRepository) GetPnLReport(startDate, endDate string) (*domain.PnLReportDTO, error) {
+	if startDate == "" {
+		startDate = time.Now().Format("2006-01") + "-01"
+	}
+	if endDate == "" {
+		endDate = time.Now().Format("2006-01-02")
+	}
+
+	dto := &domain.PnLReportDTO{}
+
+	// Total Paid Invoices & Revenue Breakdown by Item Type
+	type ItemSum struct {
+		ItemType string  `db:"item_type"`
+		Total    float64 `db:"total"`
+	}
+	var sums []ItemSum
+	query := `
+		SELECT ii.item_type, COALESCE(SUM(ii.subtotal), 0) AS total
+		FROM invoice_items ii
+		JOIN invoices inv ON ii.invoice_id = inv.id
+		WHERE inv.status = 'LUNAS'
+		  AND inv.created_at::DATE BETWEEN $1::DATE AND $2::DATE
+		GROUP BY ii.item_type
+	`
+	_ = r.db.Select(&sums, query, startDate, endDate)
+
+	for _, s := range sums {
+		switch s.ItemType {
+		case "PENDAFTARAN":
+			dto.RegistrationIncome += s.Total
+		case "KONSULTASI":
+			dto.ConsultationIncome += s.Total
+		case "TINDAKAN":
+			dto.ProcedureIncome += s.Total
+		case "OBAT":
+			dto.PharmacyIncome += s.Total
+		default:
+			dto.AncillaryIncome += s.Total
+		}
+		dto.TotalIncome += s.Total
+	}
+
+	// Calculate Estimated Pharmacy HPP (Cost of Goods Sold ~ 70% of drug retail price)
+	dto.PharmacyHppCost = dto.PharmacyIncome * 0.70
+	dto.GrossProfit = dto.TotalIncome - dto.PharmacyHppCost
+
+	_ = r.db.Get(&dto.TotalInvoicesPaid, `
+		SELECT COUNT(*) FROM invoices 
+		WHERE status = 'LUNAS' AND created_at::DATE BETWEEN $1::DATE AND $2::DATE
+	`, startDate, endDate)
+
+	return dto, nil
+}
+
+func (r *BillingRepository) GetTopDiseases(startDate, endDate string, limit int) ([]domain.TopDiseaseDTO, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if startDate == "" {
+		startDate = "2026-01-01"
+	}
+	if endDate == "" {
+		endDate = time.Now().Format("2006-01-02")
+	}
+
+	query := `
+		SELECT mr.primary_diagnosis_code AS icd10_code,
+		       COALESCE(c.description, mr.primary_diagnosis_desc, '') AS description,
+		       COUNT(*) AS total_cases
+		FROM medical_records mr
+		LEFT JOIN icd10_codes c ON mr.primary_diagnosis_code = c.code
+		WHERE mr.primary_diagnosis_code IS NOT NULL AND mr.primary_diagnosis_code != ''
+		  AND mr.created_at::DATE BETWEEN $1::DATE AND $2::DATE
+		GROUP BY mr.primary_diagnosis_code, c.description, mr.primary_diagnosis_desc
+		ORDER BY total_cases DESC
+		LIMIT $3
+	`
+	var list []domain.TopDiseaseDTO
+	err := r.db.Select(&list, query, startDate, endDate, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	var totalAll int
+	for _, it := range list {
+		totalAll += it.TotalCases
+	}
+	if totalAll > 0 {
+		for i := range list {
+			list[i].Percentage = (float64(list[i].TotalCases) / float64(totalAll)) * 100.0
+		}
+	}
+
+	return list, nil
+}
+
+func (r *BillingRepository) VerifyPublicDocument(docType, code string) (*domain.PublicDocumentVerification, error) {
+	ver := &domain.PublicDocumentVerification{
+		DocumentType:   docType,
+		DocumentNumber: code,
+		ClinicName:     "RUMAH SAKIT & KLINIK SIMRS-ASOY",
+		Status:         "SAH & TERVERIFIKASI SISTEM",
+	}
+
+	switch docType {
+	case "INVOICE", "KUITANSI":
+		var inv domain.Invoice
+		err := r.db.Get(&inv, `
+			SELECT inv.nomor_invoice, inv.status, inv.total_tagihan, inv.created_at,
+			       p.nama_pasien AS patient_name, p.no_rm
+			FROM invoices inv
+			JOIN patients p ON inv.patient_id = p.id
+			WHERE inv.nomor_invoice = $1 OR inv.id::text = $1
+		`, code)
+		if err != nil {
+			return nil, fmt.Errorf("dokumen kuitansi %s tidak ditemukan atau tidak terdaftar", code)
+		}
+		ver.DocumentNumber = inv.NomorInvoice
+		ver.PatientName = inv.PatientName
+		ver.NoRM = inv.NoRM
+		ver.IssueDate = inv.CreatedAt.Format("02 Jan 2006 15:04 WIB")
+		ver.Details = fmt.Sprintf("Kuitansi Pelayanan Medis dengan Status: %s. Total Tagihan: Rp %.0f", inv.Status, inv.TotalTagihan)
+
+	case "CONSENT", "INFORMED_CONSENT":
+		var ic domain.InformedConsent
+		err := r.db.Get(&ic, `
+			SELECT ic.action_name, ic.consent_type, ic.signer_name, ic.created_at,
+			       p.nama_pasien AS patient_name, p.no_rm, u.full_name AS doctor_name
+			FROM informed_consents ic
+			JOIN patients p ON ic.patient_id = p.id
+			JOIN users u ON ic.doctor_id = u.id
+			WHERE ic.qr_code_token = $1 OR ic.id::text = $1
+		`, code)
+		if err != nil {
+			return nil, fmt.Errorf("dokumen informed consent dengan token %s tidak valid", code)
+		}
+		ver.PatientName = ic.PatientName
+		ver.NoRM = ic.NoRM
+		ver.DoctorName = ic.DoctorName
+		ver.IssueDate = ic.CreatedAt.Format("02 Jan 2006 15:04 WIB")
+		ver.Details = fmt.Sprintf("Formulir %s untuk Tindakan: %s. Ditandatangani oleh: %s", ic.ConsentType, ic.ActionName, ic.SignerName)
+
+	default: // SURAT_MEDIS
+		var mc domain.MedicalCertificate
+		err := r.db.Get(&mc, `
+			SELECT mc.nomor_surat, mc.jenis_surat, mc.diagnosa, mc.created_at,
+			       p.nama_pasien AS patient_name, p.no_rm, u.full_name AS doctor_name
+			FROM medical_certificates mc
+			JOIN patients p ON mc.patient_id = p.id
+			JOIN users u ON mc.doctor_id = u.id
+			WHERE mc.nomor_surat = $1 OR mc.id::text = $1
+		`, code)
+		if err != nil {
+			return nil, fmt.Errorf("surat medis %s tidak valid atau tidak terdaftar", code)
+		}
+		ver.DocumentNumber = mc.NomorSurat
+		ver.PatientName = mc.PatientName
+		ver.NoRM = mc.NoRM
+		ver.DoctorName = mc.DoctorName
+		ver.IssueDate = mc.CreatedAt.Format("02 Jan 2006 15:04 WIB")
+		ver.Details = fmt.Sprintf("%s dengan Diagnosa Medis: %s", mc.JenisSurat, mc.Diagnosa)
+	}
+
+	return ver, nil
+}

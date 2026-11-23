@@ -308,3 +308,142 @@ func (r *PharmacyRepository) DispensePrescription(id, dispensedBy string) error 
 
 	return tx.Commit()
 }
+
+// -------------------------------------------------------------
+// Retur Obat Pasien (Fase 1)
+// -------------------------------------------------------------
+
+func (r *PharmacyRepository) CreateMedicineReturn(ret *domain.MedicineReturn, items []domain.MedicineReturnItemDTO, currentUserID string) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	dateStr := time.Now().Format("20060102")
+	var count int
+	_ = tx.Get(&count, "SELECT COUNT(*) FROM medicine_returns WHERE nomor_retur LIKE $1", fmt.Sprintf("RET-%s-%%", dateStr))
+	ret.NomorRetur = fmt.Sprintf("RET-%s-%03d", dateStr, count+1)
+
+	// Auto-link active invoice for the visit if not explicitly supplied
+	if ret.InvoiceID == nil {
+		var invID string
+		_ = tx.Get(&invID, "SELECT id FROM invoices WHERE visit_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 1", ret.VisitID)
+		if invID != "" {
+			ret.InvoiceID = &invID
+		}
+	}
+
+	var totalRefund float64
+	for _, it := range items {
+		totalRefund += float64(it.Qty) * it.UnitPrice
+	}
+	ret.TotalRefund = totalRefund
+
+	query := `
+		INSERT INTO medicine_returns (nomor_retur, prescription_id, visit_id, patient_id, invoice_id,
+		                              alasan, total_refund, status, created_by, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'COMPLETED', $8, NOW())
+		RETURNING id, created_at
+	`
+	err = tx.QueryRow(query, ret.NomorRetur, ret.PrescriptionID, ret.VisitID, ret.PatientID, ret.InvoiceID,
+		ret.Alasan, ret.TotalRefund, currentUserID).Scan(&ret.ID, &ret.CreatedAt)
+	if err != nil {
+		return err
+	}
+
+	for _, it := range items {
+		subtotal := float64(it.Qty) * it.UnitPrice
+
+		// ACID Row-Level Locking on inventory_items
+		var currentStock int
+		_ = tx.Get(&currentStock, "SELECT depo_stock FROM inventory_items WHERE id = $1 FOR UPDATE", it.ItemID)
+
+		// Restock back to Depo Farmasi & Total Stock
+		_, err = tx.Exec(`
+			UPDATE inventory_items 
+			SET depo_stock = depo_stock + $1, total_stock = total_stock + $1, updated_at = NOW() 
+			WHERE id = $2
+		`, it.Qty, it.ItemID)
+		if err != nil {
+			return err
+		}
+
+		// Insert stock mutation IN_RETUR
+		_, _ = tx.Exec(`
+			INSERT INTO stock_mutations (item_id, transaction_type, qty, source_depo, dest_depo, notes, created_by, created_at)
+			VALUES ($1, 'IN_RETUR', $2, 'PASIEN', 'DEPO_FARMASI', $3, $4, NOW())
+		`, it.ItemID, it.Qty, "Retur obat pasien: "+ret.Alasan, currentUserID)
+
+		// Insert return item
+		_, err = tx.Exec(`
+			INSERT INTO medicine_return_items (return_id, item_id, item_name, qty, unit_price, subtotal, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW())
+		`, ret.ID, it.ItemID, it.ItemName, it.Qty, it.UnitPrice, subtotal)
+		if err != nil {
+			return err
+		}
+	}
+
+	// If invoice exists, adjust invoice total
+	if ret.InvoiceID != nil && *ret.InvoiceID != "" {
+		_, _ = tx.Exec(`
+			UPDATE invoices
+			SET subtotal = GREATEST(0, subtotal - $1),
+			    total_tagihan = GREATEST(0, total_tagihan - $1),
+			    sisa_tagihan = GREATEST(0, sisa_tagihan - $1),
+			    updated_at = NOW()
+			WHERE id = $2
+		`, ret.TotalRefund, *ret.InvoiceID)
+	}
+
+	return tx.Commit()
+}
+
+func (r *PharmacyRepository) GetMedicineReturns(search string, page, limit int) ([]domain.MedicineReturn, int, error) {
+	offset := (page - 1) * limit
+	where := []string{"1=1"}
+	args := []interface{}{}
+	idx := 1
+
+	if search != "" {
+		where = append(where, fmt.Sprintf("(mr.nomor_retur ILIKE $%d OR p.nama_pasien ILIKE $%d OR p.no_rm ILIKE $%d)", idx, idx, idx))
+		args = append(args, "%"+search+"%")
+		idx++
+	}
+
+	whereSQL := strings.Join(where, " AND ")
+	var total int
+	err := r.db.Get(&total, fmt.Sprintf("SELECT COUNT(*) FROM medicine_returns mr JOIN patients p ON mr.patient_id = p.id WHERE %s", whereSQL), args...)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := fmt.Sprintf(`
+		SELECT mr.id, mr.nomor_retur, mr.prescription_id, mr.visit_id, v.no_rawat,
+		       mr.patient_id, p.nama_pasien AS patient_name, mr.invoice_id,
+		       mr.alasan, mr.total_refund, mr.status, mr.created_by, mr.created_at
+		FROM medicine_returns mr
+		JOIN patients p ON mr.patient_id = p.id
+		JOIN visits v ON mr.visit_id = v.id
+		WHERE %s
+		ORDER BY mr.created_at DESC
+		LIMIT $%d OFFSET $%d
+	`, whereSQL, idx, idx+1)
+	args = append(args, limit, offset)
+
+	var list []domain.MedicineReturn
+	err = r.db.Select(&list, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Fetch items for each return
+	for i := range list {
+		var itms []domain.MedicineReturnItem
+		_ = r.db.Select(&itms, "SELECT id, return_id, item_id, item_name, qty, unit_price, subtotal, created_at FROM medicine_return_items WHERE return_id = $1", list[i].ID)
+		list[i].Items = itms
+	}
+
+	return list, total, nil
+}
