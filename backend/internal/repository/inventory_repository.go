@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"simrs-asoy/backend/internal/domain"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type InventoryRepository struct {

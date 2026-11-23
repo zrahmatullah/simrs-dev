@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"simrs-asoy/backend/internal/domain"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type ClinicalRepository struct {
@@ -36,7 +37,7 @@ func (r *ClinicalRepository) GetVitalSignsByVisitID(visitID string) ([]domain.Vi
 		       vs.td_sistole, vs.td_diastole, vs.hr, vs.rr, vs.temp, vs.spo2, vs.bb, vs.tb, vs.lk,
 		       vs.skala_nyeri, vs.kesadaran, vs.triase_level, vs.catatan_keperawatan, vs.created_at
 		FROM vital_signs vs
-		LEFT JOIN users u ON vs.nurse_id = u.id
+		LEFT JOIN users u ON vs.nurse_id = u.ids
 		WHERE vs.visit_id = $1 AND vs.deleted_at IS NULL
 		ORDER BY vs.created_at DESC
 	`
