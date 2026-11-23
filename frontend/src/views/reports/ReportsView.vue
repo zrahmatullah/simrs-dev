@@ -21,19 +21,21 @@ import type { Invoice, InventoryItem, Visit, Patient, MasterPoli } from '@/types
 const route = useRoute()
 const uiStore = useUiStore()
 
-type ReportTab = 'financial' | 'pharmacy' | 'registrations' | 'demographics'
+type ReportTab = 'financial' | 'pharmacy' | 'registrations' | 'demographics' | 'pnl' | 'top_diseases'
 const activeTab = ref<ReportTab>('financial')
+
+const validTabs = ['financial', 'pharmacy', 'registrations', 'demographics', 'pnl', 'top_diseases']
 
 // Check query param or route
 onMounted(() => {
-  if (route.query.tab && ['financial', 'pharmacy', 'registrations', 'demographics'].includes(route.query.tab as string)) {
+  if (route.query.tab && validTabs.includes(route.query.tab as string)) {
     activeTab.value = route.query.tab as ReportTab
   }
   loadReportData()
 })
 
 watch(() => route.query.tab, (newTab) => {
-  if (newTab && ['financial', 'pharmacy', 'registrations', 'demographics'].includes(newTab as string)) {
+  if (newTab && validTabs.includes(newTab as string)) {
     activeTab.value = newTab as ReportTab
   }
 })
@@ -395,6 +397,81 @@ function exportDemographicsExcel() {
   exportToExcel(`Laporan_Demografi_Pasien_${new Date().toISOString().split('T')[0]}`, 'Demografi Pasien', exportData)
 }
 
+// =========================================================================
+// 5. LAPORAN LABA RUGI / P&L (PROFIT & LOSS) (FASE 1)
+// =========================================================================
+const pnlData = ref<any | null>(null)
+const isLoadingPnl = ref(false)
+
+async function loadPnLData() {
+  isLoadingPnl.value = true
+  try {
+    const res = await api.get<any>('/reports/pnl', {
+      start_date: dateStart.value,
+      end_date: dateEnd.value
+    })
+    if (res.data) {
+      pnlData.value = res.data
+    }
+  } catch (err: any) {
+    console.warn('Gagal memuat laporan P&L', err)
+  } finally {
+    isLoadingPnl.value = false
+  }
+}
+
+function exportPnLExcel() {
+  if (!pnlData.value) return
+  const exportData = [
+    { 'Komponen Keuangan': 'Total Pendapatan Kotor (Gross Revenue)', 'Nilai (Rp)': pnlData.value.total_revenue },
+    { 'Komponen Keuangan': 'Potongan Diskon & Promo', 'Nilai (Rp)': pnlData.value.total_discounts },
+    { 'Komponen Keuangan': 'Pendapatan Bersih (Net Revenue)', 'Nilai (Rp)': pnlData.value.net_revenue },
+    { 'Komponen Keuangan': 'Estimasi Beban Pokok Pendapatan (HPP Farmasi 70%)', 'Nilai (Rp)': pnlData.value.estimated_hpp },
+    { 'Komponen Keuangan': 'Laba Kotor Operasional (Gross Profit)', 'Nilai (Rp)': pnlData.value.gross_profit },
+    { 'Komponen Keuangan': 'Margin Keuntungan Kotor (%)', 'Nilai (Rp)': `${pnlData.value.profit_margin_pct}%` },
+    ...((pnlData.value.breakdown || []).map((b: any) => ({
+      'Komponen Keuangan': `Rincian: ${b.item_type}`,
+      'Nilai (Rp)': b.revenue
+    })))
+  ]
+  exportToExcel(`Laporan_Laba_Rugi_${dateStart.value}_sd_${dateEnd.value}`, 'Laba Rugi', exportData)
+}
+
+// =========================================================================
+// 6. TOP 10 PENYAKIT ICD-10 (FASE 1)
+// =========================================================================
+const topDiseases = ref<any[]>([])
+const isLoadingDiseases = ref(false)
+
+async function loadTopDiseases() {
+  isLoadingDiseases.value = true
+  try {
+    const res = await api.get<any[]>('/reports/top-diseases', {
+      start_date: dateStart.value,
+      end_date: dateEnd.value,
+      limit: 10
+    })
+    if (res.data) {
+      topDiseases.value = res.data
+    }
+  } catch (err: any) {
+    console.warn('Gagal memuat top 10 penyakit', err)
+  } finally {
+    isLoadingDiseases.value = false
+  }
+}
+
+function exportTopDiseasesExcel() {
+  const exportData = topDiseases.value.map((d, idx) => ({
+    'Peringkat': idx + 1,
+    'Kode ICD-10': d.icd10_code,
+    'Nama Penyakit / Diagnosis': d.icd10_name,
+    'Jumlah Kasus Terdata': d.total_cases,
+    'Proporsi Kasus (%)': `${d.percentage}%`
+  }))
+  exportToExcel(`Laporan_Top_10_Penyakit_ICD10_${dateStart.value}_sd_${dateEnd.value}`, 'Top 10 Morbiditas', exportData)
+}
+
 // Master references for filters
 const poliList = ref<MasterPoli[]>([])
 
@@ -420,6 +497,10 @@ async function loadReportData() {
     // 5. Load Poli Units
     const poliRes = await api.get<MasterPoli[]>('/master/poli')
     if (poliRes.data) poliList.value = poliRes.data
+
+    // 6. Load PnL and Top Diseases
+    loadPnLData()
+    loadTopDiseases()
   } catch (err: any) {
     console.error('Failed to load report datasets:', err)
   } finally {
@@ -512,6 +593,34 @@ async function loadReportData() {
       >
         <PieChart class="w-4 h-4 text-[#0284C7]" />
         Laporan Demografi
+      </button>
+
+      <button
+        type="button"
+        :class="[
+          'px-4 py-2.5 text-[13px] font-semibold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap',
+          activeTab === 'pnl'
+            ? 'border-[#0284C7] text-[#0284C7] bg-[#F0F9FF]'
+            : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
+        ]"
+        @click="activeTab = 'pnl'; loadPnLData()"
+      >
+        <Calculator class="w-4 h-4 text-[#0284C7]" />
+        Laba Rugi (P&L)
+      </button>
+
+      <button
+        type="button"
+        :class="[
+          'px-4 py-2.5 text-[13px] font-semibold border-b-2 transition-all flex items-center gap-2 whitespace-nowrap',
+          activeTab === 'top_diseases'
+            ? 'border-[#0284C7] text-[#0284C7] bg-[#F0F9FF]'
+            : 'border-transparent text-[#64748B] hover:text-[#0F172A]'
+        ]"
+        @click="activeTab = 'top_diseases'; loadTopDiseases()"
+      >
+        <Activity class="w-4 h-4 text-[#0284C7]" />
+        Top 10 Penyakit (ICD-10)
       </button>
     </div>
 
@@ -995,6 +1104,201 @@ async function loadReportData() {
           <span v-else class="text-slate-400 text-xs">-</span>
         </template>
       </DataTable>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- TAB 5: LAPORAN LABA RUGI / P&L (FASE 1)                                   -->
+    <!-- ========================================================================= -->
+    <div v-if="activeTab === 'pnl'" class="space-y-4">
+      <!-- Filter Bar -->
+      <div class="bg-white border border-[#E2E8F0] rounded-[8px] p-3.5 shadow-xs">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-[12px] font-bold text-[#475569]">Rentang Periode P&L:</span>
+            <div class="w-36">
+              <BaseInput v-model="dateStart" type="date" compact />
+            </div>
+            <span class="text-[12px] text-[#94A3B8]">s/d</span>
+            <div class="w-36">
+              <BaseInput v-model="dateEnd" type="date" compact />
+            </div>
+            <BaseButton variant="secondary" size="sm" :loading="isLoadingPnl" @click="loadPnLData">
+              <Filter class="w-3.5 h-3.5 mr-1" />
+              Terapkan
+            </BaseButton>
+          </div>
+
+          <BaseButton variant="primary" size="md" @click="exportPnLExcel">
+            <Download class="w-4 h-4 mr-1.5" />
+            Download Excel (.xlsx)
+          </BaseButton>
+        </div>
+      </div>
+
+      <!-- KPI Executive Cards P&L -->
+      <div v-if="pnlData" class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+        <div class="bg-white border border-[#E2E8F0] rounded-[8px] p-3.5 shadow-xs">
+          <span class="text-[11px] font-semibold text-[#64748B] block">Total Pendapatan Kotor</span>
+          <div class="text-[18px] font-extrabold font-mono text-[#0F172A] mt-1">
+            Rp {{ Number(pnlData.total_revenue || 0).toLocaleString('id-ID') }}
+          </div>
+          <span class="text-[10px] text-slate-400">Sebelum diskon promo</span>
+        </div>
+
+        <div class="bg-white border border-[#E2E8F0] rounded-[8px] p-3.5 shadow-xs">
+          <span class="text-[11px] font-semibold text-[#64748B] block">Potongan Diskon & Promo</span>
+          <div class="text-[18px] font-extrabold font-mono text-rose-600 mt-1">
+            -Rp {{ Number(pnlData.total_discounts || 0).toLocaleString('id-ID') }}
+          </div>
+          <span class="text-[10px] text-slate-400">Total subsidi kupon</span>
+        </div>
+
+        <div class="bg-white border border-[#E2E8F0] rounded-[8px] p-3.5 shadow-xs">
+          <span class="text-[11px] font-semibold text-[#64748B] block">Pendapatan Bersih (Net)</span>
+          <div class="text-[18px] font-extrabold font-mono text-[#0284C7] mt-1">
+            Rp {{ Number(pnlData.net_revenue || 0).toLocaleString('id-ID') }}
+          </div>
+          <span class="text-[10px] text-sky-700 font-medium">Omset riil masuk kasir</span>
+        </div>
+
+        <div class="bg-white border border-[#E2E8F0] rounded-[8px] p-3.5 shadow-xs">
+          <span class="text-[11px] font-semibold text-[#64748B] block">Estimasi Beban HPP Obat</span>
+          <div class="text-[18px] font-extrabold font-mono text-amber-700 mt-1">
+            Rp {{ Number(pnlData.estimated_hpp || 0).toLocaleString('id-ID') }}
+          </div>
+          <span class="text-[10px] text-amber-700 font-medium">~70% dari omset farmasi</span>
+        </div>
+
+        <div class="bg-emerald-50 border border-emerald-200 rounded-[8px] p-3.5 shadow-xs col-span-2 lg:col-span-1">
+          <div class="flex items-center justify-between">
+            <span class="text-[11px] font-bold text-emerald-900">Laba Kotor Operasional</span>
+            <span class="px-1.5 py-0.5 rounded bg-emerald-200 text-emerald-800 text-[10px] font-bold font-mono">
+              {{ pnlData.profit_margin_pct }}%
+            </span>
+          </div>
+          <div class="text-[20px] font-extrabold font-mono text-emerald-800 mt-1">
+            Rp {{ Number(pnlData.gross_profit || 0).toLocaleString('id-ID') }}
+          </div>
+          <span class="text-[10px] text-emerald-700 font-semibold">Gross Profit Margin</span>
+        </div>
+      </div>
+
+      <!-- Breakdown Komponen Pendapatan -->
+      <div v-if="pnlData" class="bg-white border border-[#E2E8F0] rounded-[8px] shadow-xs overflow-hidden">
+        <div class="p-3.5 border-b border-[#E2E8F0] bg-[#F8FAFC]">
+          <h3 class="text-[13px] font-bold text-[#0F172A]">Rincian Pendapatan Berdasarkan Komponen Pelayanan</h3>
+        </div>
+        <table class="w-full text-left text-[12px]">
+          <thead class="bg-[#F8FAFC] text-[#475569] border-b font-bold">
+            <tr>
+              <th class="p-3">Komponen Pelayanan</th>
+              <th class="p-3 text-right">Nilai Pendapatan (Rp)</th>
+              <th class="p-3 text-right w-44">Kontribusi (%)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#F1F5F9]">
+            <tr v-for="b in (pnlData.breakdown || [])" :key="b.item_type" class="hover:bg-[#F8FAFC]">
+              <td class="p-3 font-semibold text-[#0F172A] flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-[#0284C7]"></span>
+                {{ b.item_type }}
+              </td>
+              <td class="p-3 text-right font-mono font-bold text-slate-800">
+                Rp {{ Number(b.revenue).toLocaleString('id-ID') }}
+              </td>
+              <td class="p-3 text-right font-mono text-[#0284C7] font-semibold">
+                {{ pnlData.total_revenue > 0 ? ((b.revenue / pnlData.total_revenue) * 100).toFixed(1) : 0 }}%
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- TAB 6: TOP 10 PENYAKIT ICD-10 (FASE 1)                                    -->
+    <!-- ========================================================================= -->
+    <div v-if="activeTab === 'top_diseases'" class="space-y-4">
+      <div class="p-3 rounded-[6px] bg-[#ECFDF5] border border-[#A7F3D0] text-[#065F46] text-[12px] flex items-center gap-2">
+        <CheckCircle2 class="w-4 h-4 text-[#059669] shrink-0" />
+        <span>
+          <strong>Laporan Morbiditas Resmi (ICD-10):</strong> Menampilkan 10 diagnosis penyakit tertinggi pada pelayanan poliklinik rawat jalan, siap diekspor ke Microsoft Excel untuk pelaporan Dinkes / Kemenkes RI.
+        </span>
+      </div>
+
+      <!-- Filter Bar -->
+      <div class="bg-white border border-[#E2E8F0] rounded-[8px] p-3.5 shadow-xs">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center gap-2">
+            <span class="text-[12px] font-bold text-[#475569]">Rentang Tanggal Diagnosis:</span>
+            <div class="w-36">
+              <BaseInput v-model="dateStart" type="date" compact />
+            </div>
+            <span class="text-[12px] text-[#94A3B8]">s/d</span>
+            <div class="w-36">
+              <BaseInput v-model="dateEnd" type="date" compact />
+            </div>
+            <BaseButton variant="secondary" size="sm" :loading="isLoadingDiseases" @click="loadTopDiseases">
+              <Filter class="w-3.5 h-3.5 mr-1" />
+              Terapkan
+            </BaseButton>
+          </div>
+
+          <BaseButton variant="primary" size="md" @click="exportTopDiseasesExcel">
+            <Download class="w-4 h-4 mr-1.5" />
+            Download Excel (.xlsx)
+          </BaseButton>
+        </div>
+      </div>
+
+      <!-- Top 10 Table -->
+      <div class="bg-white border border-[#E2E8F0] rounded-[8px] shadow-xs overflow-hidden">
+        <table class="w-full text-left text-[12px]">
+          <thead class="bg-[#F8FAFC] text-[#475569] border-b font-bold">
+            <tr>
+              <th class="p-3 text-center w-16">Peringkat</th>
+              <th class="p-3 w-32">Kode ICD-10</th>
+              <th class="p-3">Nama Diagnosis / Penyakit</th>
+              <th class="p-3 text-center w-36">Jumlah Kasus</th>
+              <th class="p-3 w-64">Proporsi Kasus (%)</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[#F1F5F9]">
+            <tr v-if="topDiseases.length === 0">
+              <td colspan="5" class="p-8 text-center text-[#94A3B8]">
+                Belum ada data diagnosis penyakit terdata pada rentang tanggal ini.
+              </td>
+            </tr>
+            <tr v-for="(dis, idx) in topDiseases" :key="dis.icd10_code" class="hover:bg-[#F8FAFC]">
+              <td class="p-3 text-center">
+                <span
+                  class="w-6 h-6 rounded-full inline-flex items-center justify-center text-[11px] font-extrabold text-white"
+                  :class="idx === 0 ? 'bg-amber-500' : idx === 1 ? 'bg-slate-400' : idx === 2 ? 'bg-amber-700' : 'bg-slate-200 !text-slate-700'"
+                >
+                  {{ idx + 1 }}
+                </span>
+              </td>
+              <td class="p-3 font-mono font-bold text-[#0284C7]">{{ dis.icd10_code }}</td>
+              <td class="p-3 font-semibold text-[#0F172A]">{{ dis.icd10_name }}</td>
+              <td class="p-3 text-center font-mono font-bold text-slate-800 text-[13px]">
+                {{ dis.total_cases }} pasien
+              </td>
+              <td class="p-3">
+                <div class="flex items-center gap-2">
+                  <div class="flex-1 bg-slate-100 rounded-full h-2.5 overflow-hidden">
+                    <div
+                      class="bg-[#0284C7] h-2.5 rounded-full transition-all"
+                      :style="{ width: `${dis.percentage}%` }"
+                    ></div>
+                  </div>
+                  <span class="font-mono text-[11px] font-bold text-slate-600 w-12 text-right">
+                    {{ dis.percentage }}%
+                  </span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </template>

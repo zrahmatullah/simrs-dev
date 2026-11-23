@@ -172,3 +172,66 @@ func (h *BillingHandler) GetShiftHistory(w http.ResponseWriter, r *http.Request)
 
 	RespondSuccess(w, "Riwayat shift kasir berhasil diambil", list)
 }
+
+// -------------------------------------------------------------
+// Split Payment & Reports Handlers (Fase 1)
+// -------------------------------------------------------------
+
+func (h *BillingHandler) ProcessSplitPayment(w http.ResponseWriter, r *http.Request) {
+	invoiceID := chi.URLParam(r, "id")
+	var req domain.ProcessSplitPaymentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		RespondBadRequest(w, "Format request body tidak valid", err.Error())
+		return
+	}
+
+	claims := middleware.GetCurrentUser(r)
+	inv, err := h.billingUsecase.ProcessSplitPayment(invoiceID, req, claims.UserID, claims.Username)
+	if err != nil {
+		RespondBadRequest(w, err.Error(), nil)
+		return
+	}
+
+	RespondSuccess(w, "Pembayaran kombinasi (split payment) berhasil diproses", inv)
+}
+
+func (h *BillingHandler) GetPnLReport(w http.ResponseWriter, r *http.Request) {
+	startDate := r.URL.Query().Get("start_date")
+	endDate := r.URL.Query().Get("end_date")
+
+	pnl, err := h.billingUsecase.GetPnLReport(startDate, endDate)
+	if err != nil {
+		RespondInternalError(w, err)
+		return
+	}
+	RespondSuccess(w, "Laporan laba rugi (P&L) berhasil dikalkulasi", pnl)
+}
+
+func (h *BillingHandler) GetTopDiseases(w http.ResponseWriter, r *http.Request) {
+	startDate := r.URL.Query().Get("start_date")
+	endDate := r.URL.Query().Get("end_date")
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+
+	list, err := h.billingUsecase.GetTopDiseases(startDate, endDate, limit)
+	if err != nil {
+		RespondInternalError(w, err)
+		return
+	}
+	RespondSuccess(w, "Laporan 10 besar penyakit ICD-10 berhasil diambil", list)
+}
+
+func (h *BillingHandler) VerifyPublicDocument(w http.ResponseWriter, r *http.Request) {
+	docType := r.URL.Query().Get("type")
+	code := r.URL.Query().Get("code")
+	if docType == "" || code == "" {
+		RespondBadRequest(w, "Tipe dokumen dan kode verifikasi wajib diisi", nil)
+		return
+	}
+
+	ver, err := h.billingUsecase.VerifyPublicDocument(docType, code)
+	if err != nil {
+		RespondNotFound(w, err.Error())
+		return
+	}
+	RespondSuccess(w, "Dokumen resmi terverifikasi valid dan sah", ver)
+}

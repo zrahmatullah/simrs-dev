@@ -2,6 +2,8 @@ package usecase
 
 import (
 	"errors"
+	"fmt"
+	"time"
 
 	"simrs-asoy/backend/internal/domain"
 	"simrs-asoy/backend/internal/repository"
@@ -263,6 +265,59 @@ func (u *ClinicalUsecase) CreateNursingAssessment(req domain.CreateNursingAssess
 
 func (u *ClinicalUsecase) GetNursingAssessment(visitID string) (*domain.NursingAssessment, error) {
 	return u.clinicalRepo.GetNursingAssessmentByVisitID(visitID)
+}
+
+// 6. Informed Consent Digital (Fase 1)
+func (u *ClinicalUsecase) CreateInformedConsent(req domain.CreateInformedConsentRequest, currentUserID, currentUsername string) (*domain.InformedConsent, error) {
+	if req.VisitID == "" || req.ActionName == "" || req.SignerName == "" || req.PatientSignatureData == "" {
+		return nil, errors.New("tindakan medis, nama penandatangan, dan tanda tangan digital wajib diisi")
+	}
+
+	visit, err := u.visitRepo.FindByID(req.VisitID)
+	if err != nil {
+		return nil, errors.New("kunjungan tidak ditemukan")
+	}
+
+	tok, _ := security.GenerateRandomToken(8)
+	qrToken := fmt.Sprintf("IC-%s-%s", time.Now().Format("20060102"), tok)
+
+	consent := &domain.InformedConsent{
+		VisitID:              req.VisitID,
+		PatientID:            visit.PatientID,
+		DoctorID:             currentUserID,
+		ConsentType:          req.ConsentType,
+		ActionName:           req.ActionName,
+		RisksExplained:       req.RisksExplained,
+		SignerName:           req.SignerName,
+		SignerRelation:       req.SignerRelation,
+		PatientSignatureData: req.PatientSignatureData,
+		DoctorSignatureData:  req.DoctorSignatureData,
+		QRCodeToken:          qrToken,
+	}
+
+	err = u.clinicalRepo.CreateInformedConsent(consent)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = u.auditRepo.Log(&domain.AuditLog{
+		UserID:     &currentUserID,
+		Username:   currentUsername,
+		Action:     "CREATE_INFORMED_CONSENT",
+		EntityType: "informed_consent",
+		EntityID:   consent.ID,
+		Details:    fmt.Sprintf(`{"action_name": "%s", "signer": "%s"}`, consent.ActionName, consent.SignerName),
+	})
+
+	return consent, nil
+}
+
+func (u *ClinicalUsecase) GetInformedConsentsByVisit(visitID string) ([]domain.InformedConsent, error) {
+	return u.clinicalRepo.GetInformedConsentsByVisitID(visitID)
+}
+
+func (u *ClinicalUsecase) GetInformedConsentByID(id string) (*domain.InformedConsent, error) {
+	return u.clinicalRepo.GetInformedConsentByID(id)
 }
 
 func safeString(s *string) string {

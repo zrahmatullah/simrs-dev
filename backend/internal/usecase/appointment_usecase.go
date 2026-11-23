@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"errors"
+	"fmt"
 
 	"simrs-asoy/backend/internal/domain"
 	"simrs-asoy/backend/internal/repository"
@@ -152,4 +153,97 @@ func (u *AppointmentUsecase) CheckIn(id, currentUserID, currentUsername string) 
 	})
 
 	return u.visitRepo.FindByID(visit.ID)
+}
+
+// -------------------------------------------------------------
+// Doctor Schedules & Leaves (Fase 1)
+// -------------------------------------------------------------
+
+func (u *AppointmentUsecase) GetDoctorSchedules(doctorID string, poliID int, dayOfWeek int) ([]domain.DoctorSchedule, error) {
+	return u.aptRepo.GetDoctorSchedules(doctorID, poliID, dayOfWeek)
+}
+
+func (u *AppointmentUsecase) CreateDoctorSchedule(req domain.CreateDoctorScheduleRequest, currentUserID, currentUsername string) (*domain.DoctorSchedule, error) {
+	if req.DoctorID == "" || req.PoliID <= 0 || req.StartTime == "" || req.EndTime == "" {
+		return nil, errors.New("dokter, poli, dan jam praktik wajib diisi")
+	}
+	if req.MaxQuota <= 0 {
+		req.MaxQuota = 30
+	}
+
+	schedule := &domain.DoctorSchedule{
+		DoctorID:  req.DoctorID,
+		PoliID:    req.PoliID,
+		DayOfWeek: req.DayOfWeek,
+		StartTime: req.StartTime,
+		EndTime:   req.EndTime,
+		MaxQuota:  req.MaxQuota,
+	}
+
+	err := u.aptRepo.CreateDoctorSchedule(schedule)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = u.auditRepo.Log(&domain.AuditLog{
+		UserID:     &currentUserID,
+		Username:   currentUsername,
+		Action:     "CREATE_DOCTOR_SCHEDULE",
+		EntityType: "doctor_schedule",
+		EntityID:   fmt.Sprintf("%d", schedule.ID),
+		Details:    fmt.Sprintf(`{"doctor_id": "%s", "day": %d, "quota": %d}`, schedule.DoctorID, schedule.DayOfWeek, schedule.MaxQuota),
+	})
+
+	return schedule, nil
+}
+
+func (u *AppointmentUsecase) DeleteDoctorSchedule(id int, currentUserID, currentUsername string) error {
+	err := u.aptRepo.DeleteDoctorSchedule(id)
+	if err != nil {
+		return err
+	}
+
+	_ = u.auditRepo.Log(&domain.AuditLog{
+		UserID:     &currentUserID,
+		Username:   currentUsername,
+		Action:     "DELETE_DOCTOR_SCHEDULE",
+		EntityType: "doctor_schedule",
+		EntityID:   fmt.Sprintf("%d", id),
+	})
+
+	return nil
+}
+
+func (u *AppointmentUsecase) GetDoctorLeaves(doctorID string, date string) ([]domain.DoctorLeave, error) {
+	return u.aptRepo.GetDoctorLeaves(doctorID, date)
+}
+
+func (u *AppointmentUsecase) CreateDoctorLeave(req domain.CreateDoctorLeaveRequest, currentUserID, currentUsername string) (*domain.DoctorLeave, error) {
+	if req.DoctorID == "" || req.StartDate == "" || req.EndDate == "" || req.Reason == "" {
+		return nil, errors.New("dokter, rentang tanggal, dan alasan cuti wajib diisi")
+	}
+
+	leave := &domain.DoctorLeave{
+		DoctorID:           req.DoctorID,
+		StartDate:          req.StartDate,
+		EndDate:            req.EndDate,
+		Reason:             req.Reason,
+		SubstituteDoctorID: req.SubstituteDoctorID,
+	}
+
+	err := u.aptRepo.CreateDoctorLeave(leave)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = u.auditRepo.Log(&domain.AuditLog{
+		UserID:     &currentUserID,
+		Username:   currentUsername,
+		Action:     "CREATE_DOCTOR_LEAVE",
+		EntityType: "doctor_leave",
+		EntityID:   leave.ID,
+		Details:    fmt.Sprintf(`{"doctor_id": "%s", "start": "%s", "end": "%s"}`, leave.DoctorID, leave.StartDate, leave.EndDate),
+	})
+
+	return leave, nil
 }

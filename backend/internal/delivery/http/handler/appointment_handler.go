@@ -116,3 +116,83 @@ func (h *AppointmentHandler) CheckIn(w http.ResponseWriter, r *http.Request) {
 
 	RespondSuccess(w, "Pasien berhasil check-in dan masuk ke antrean poli", visit)
 }
+
+// -------------------------------------------------------------
+// Doctor Schedules & Leaves Handlers (Fase 1)
+// -------------------------------------------------------------
+
+func (h *AppointmentHandler) GetDoctorSchedules(w http.ResponseWriter, r *http.Request) {
+	doctorID := r.URL.Query().Get("doctor_id")
+	poliID, _ := strconv.Atoi(r.URL.Query().Get("poli_id"))
+	dayOfWeek := -1
+	if dayStr := r.URL.Query().Get("day_of_week"); dayStr != "" {
+		dayOfWeek, _ = strconv.Atoi(dayStr)
+	}
+
+	list, err := h.aptUsecase.GetDoctorSchedules(doctorID, poliID, dayOfWeek)
+	if err != nil {
+		RespondInternalError(w, err)
+		return
+	}
+	RespondSuccess(w, "Jadwal dokter berhasil diambil", list)
+}
+
+func (h *AppointmentHandler) CreateDoctorSchedule(w http.ResponseWriter, r *http.Request) {
+	var req domain.CreateDoctorScheduleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		RespondBadRequest(w, "Format request body tidak valid", err.Error())
+		return
+	}
+
+	claims := middleware.GetCurrentUser(r)
+	s, err := h.aptUsecase.CreateDoctorSchedule(req, claims.UserID, claims.Username)
+	if err != nil {
+		RespondBadRequest(w, err.Error(), nil)
+		return
+	}
+	RespondCreated(w, "Jadwal dokter berhasil ditambahkan", s)
+}
+
+func (h *AppointmentHandler) DeleteDoctorSchedule(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(chi.URLParam(r, "id"))
+	if err != nil {
+		RespondBadRequest(w, "ID jadwal tidak valid", nil)
+		return
+	}
+
+	claims := middleware.GetCurrentUser(r)
+	err = h.aptUsecase.DeleteDoctorSchedule(id, claims.UserID, claims.Username)
+	if err != nil {
+		RespondBadRequest(w, err.Error(), nil)
+		return
+	}
+	RespondSuccess(w, "Jadwal dokter berhasil dinonaktifkan", nil)
+}
+
+func (h *AppointmentHandler) GetDoctorLeaves(w http.ResponseWriter, r *http.Request) {
+	doctorID := r.URL.Query().Get("doctor_id")
+	date := r.URL.Query().Get("date")
+
+	list, err := h.aptUsecase.GetDoctorLeaves(doctorID, date)
+	if err != nil {
+		RespondInternalError(w, err)
+		return
+	}
+	RespondSuccess(w, "Data cuti dokter berhasil diambil", list)
+}
+
+func (h *AppointmentHandler) CreateDoctorLeave(w http.ResponseWriter, r *http.Request) {
+	var req domain.CreateDoctorLeaveRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		RespondBadRequest(w, "Format request body tidak valid", err.Error())
+		return
+	}
+
+	claims := middleware.GetCurrentUser(r)
+	l, err := h.aptUsecase.CreateDoctorLeave(req, claims.UserID, claims.Username)
+	if err != nil {
+		RespondBadRequest(w, err.Error(), nil)
+		return
+	}
+	RespondCreated(w, "Pengajuan cuti dokter berhasil disimpan", l)
+}

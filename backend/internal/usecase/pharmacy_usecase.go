@@ -129,3 +129,52 @@ func (u *PharmacyUsecase) DispensePrescription(id string, currentUserID, current
 
 	return nil
 }
+
+// -------------------------------------------------------------
+// Retur Obat Pasien (Fase 1)
+// -------------------------------------------------------------
+
+func (u *PharmacyUsecase) CreateMedicineReturn(req domain.CreateMedicineReturnRequest, currentUserID, currentUsername string) (*domain.MedicineReturn, error) {
+	if req.VisitID == "" || len(req.Items) == 0 {
+		return nil, errors.New("kunjungan dan daftar item obat yang diretur wajib diisi")
+	}
+
+	visit, err := u.visitRepo.FindByID(req.VisitID)
+	if err != nil {
+		return nil, errors.New("kunjungan tidak ditemukan")
+	}
+
+	ret := &domain.MedicineReturn{
+		PrescriptionID: req.PrescriptionID,
+		VisitID:        req.VisitID,
+		PatientID:      visit.PatientID,
+		Alasan:         req.Alasan,
+		CreatedBy:      &currentUserID,
+	}
+
+	err = u.pharmacyRepo.CreateMedicineReturn(ret, req.Items, currentUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = u.auditRepo.Log(&domain.AuditLog{
+		UserID:     &currentUserID,
+		Username:   currentUsername,
+		Action:     "CREATE_MEDICINE_RETURN",
+		EntityType: "medicine_return",
+		EntityID:   ret.ID,
+		Details:    fmt.Sprintf(`{"nomor_retur": "%s", "total_refund": %.2f}`, ret.NomorRetur, ret.TotalRefund),
+	})
+
+	return ret, nil
+}
+
+func (u *PharmacyUsecase) GetMedicineReturns(search string, page, limit int) ([]domain.MedicineReturn, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	return u.pharmacyRepo.GetMedicineReturns(search, page, limit)
+}

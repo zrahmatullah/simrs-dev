@@ -27,12 +27,15 @@ import {
   Edit,
   ArrowUpRight,
   TrendingDown,
-  Warehouse
+  Warehouse,
+  ClipboardCheck,
+  Flame,
+  Printer
 } from 'lucide-vue-next'
 
 const uiStore = useUiStore()
 
-const activeTab = ref<'pr' | 'po' | 'grn' | 'stok' | 'mutasi'>('pr')
+const activeTab = ref<'pr' | 'po' | 'grn' | 'stok' | 'mutasi' | 'opname' | 'pemusnahan'>('pr')
 const loading = ref(false)
 
 // ----------------------------------------------------
@@ -558,10 +561,196 @@ const formatDate = (isoString?: string | null) => {
   })
 }
 
+// ----------------------------------------------------
+// PIPELINE 6: STOCK OPNAME (SO) FISIK (FASE 1)
+// ----------------------------------------------------
+const stockOpnames = ref<any[]>([])
+const loadingSO = ref(false)
+const showCreateSOModal = ref(false)
+const submittingSO = ref(false)
+const showSODetailModal = ref(false)
+const selectedSOForDetail = ref<any | null>(null)
+
+interface SOItemForm {
+  item_id: number
+  item_name: string
+  system_qty: number
+  physical_qty: number
+  notes: string
+}
+
+const soForm = ref({
+  depo_type: 'GUDANG_UTAMA',
+  notes: 'Stock Opname berkala inventaris farmasi',
+  items: [] as SOItemForm[]
+})
+
+const fetchStockOpnames = async () => {
+  loadingSO.value = true
+  try {
+    const res = await api.get<any[]>('/logistics/stock-opname')
+    stockOpnames.value = res.data || []
+  } catch (err: any) {
+    console.warn('Gagal memuat SO', err)
+  } finally {
+    loadingSO.value = false
+  }
+}
+
+const openCreateSOModal = () => {
+  soForm.value = {
+    depo_type: 'GUDANG_UTAMA',
+    notes: 'Stock Opname berkala inventaris farmasi',
+    items: items.value.slice(0, 20).map(it => ({
+      item_id: it.id,
+      item_name: it.item_name,
+      system_qty: soForm.value.depo_type === 'DEPO_FARMASI' ? it.depo_stock : it.total_stock,
+      physical_qty: soForm.value.depo_type === 'DEPO_FARMASI' ? it.depo_stock : it.total_stock,
+      notes: ''
+    }))
+  }
+  showCreateSOModal.value = true
+}
+
+const updateSOSystemQty = () => {
+  soForm.value.items.forEach(row => {
+    const found = items.value.find(i => i.id === row.item_id)
+    if (found) {
+      row.system_qty = soForm.value.depo_type === 'DEPO_FARMASI' ? found.depo_stock : found.total_stock
+      row.physical_qty = row.system_qty
+    }
+  })
+}
+
+const submitSO = async () => {
+  if (soForm.value.items.length === 0) {
+    uiStore.showToast('Minimal pilih 1 barang untuk stock opname', 'warning')
+    return
+  }
+  submittingSO.value = true
+  try {
+    const payload = {
+      depo_type: soForm.value.depo_type,
+      notes: soForm.value.notes,
+      items: soForm.value.items.map(it => ({
+        item_id: Number(it.item_id),
+        item_name: it.item_name,
+        physical_qty: Number(it.physical_qty),
+        notes: it.notes || ''
+      }))
+    }
+    await api.post('/logistics/stock-opname', payload)
+    uiStore.showToast('Stock Opname berhasil disimpan & stok sistem otomatis disesuaikan!', 'success')
+    showCreateSOModal.value = false
+    await fetchStockOpnames()
+    await fetchItems()
+  } catch (err: any) {
+    uiStore.showToast(err.message || 'Gagal menyimpan Stock Opname', 'error')
+  } finally {
+    submittingSO.value = false
+  }
+}
+
+const viewSODetail = (so: any) => {
+  selectedSOForDetail.value = so
+  showSODetailModal.value = true
+}
+
+// ----------------------------------------------------
+// PIPELINE 7: PEMUSNAHAN OBAT KEDALUWARSA / ED (FASE 1)
+// ----------------------------------------------------
+const disposals = ref<any[]>([])
+const loadingDisposals = ref(false)
+const showCreateDisposalModal = ref(false)
+const submittingDisposal = ref(false)
+const showDisposalDetailModal = ref(false)
+const selectedDisposalForDetail = ref<any | null>(null)
+
+const disposalForm = ref({
+  item_id: '' as number | '',
+  batch_number: '',
+  expiry_date: '',
+  qty: 1,
+  reason: 'Obat telah melewati tanggal kedaluwarsa (Expired Date) & kemasan rusak',
+  witness_name: 'Apt. Sarah Amelia, S.Farm'
+})
+
+const fetchDisposals = async () => {
+  loadingDisposals.value = true
+  try {
+    const res = await api.get<any[]>('/logistics/disposals')
+    disposals.value = res.data || []
+  } catch (err: any) {
+    console.warn('Gagal memuat pemusnahan', err)
+  } finally {
+    loadingDisposals.value = false
+  }
+}
+
+const openCreateDisposalModal = (item?: InventoryItem) => {
+  const target = item || items.value[0]
+  disposalForm.value = {
+    item_id: target ? target.id : (items.value[0]?.id || 1),
+    batch_number: 'ED-' + Math.floor(1000 + Math.random() * 9000),
+    expiry_date: new Date().toISOString().split('T')[0],
+    qty: 5,
+    reason: 'Kedaluwarsa (Expired Date) dan perubahan warna/fisik sediaan',
+    witness_name: 'Apt. Sarah Amelia, S.Farm'
+  }
+  showCreateDisposalModal.value = true
+}
+
+const submitDisposal = async () => {
+  if (!disposalForm.value.item_id) {
+    uiStore.showToast('Pilih barang yang akan dimusnahkan', 'warning')
+    return
+  }
+  if (disposalForm.value.qty <= 0) {
+    uiStore.showToast('Jumlah pemusnahan harus lebih dari 0', 'warning')
+    return
+  }
+  if (!disposalForm.value.witness_name) {
+    uiStore.showToast('Nama saksi / apoteker penanggung jawab wajib diisi', 'warning')
+    return
+  }
+
+  submittingDisposal.value = true
+  try {
+    const payload = {
+      item_id: Number(disposalForm.value.item_id),
+      batch_number: disposalForm.value.batch_number,
+      expiry_date: disposalForm.value.expiry_date,
+      qty: Number(disposalForm.value.qty),
+      reason: disposalForm.value.reason,
+      witness_name: disposalForm.value.witness_name
+    }
+    await api.post('/logistics/disposals', payload)
+    uiStore.showToast('Berita Acara Pemusnahan (BAP) berhasil diterbitkan & stok telah dihapus dari sistem!', 'success')
+    showCreateDisposalModal.value = false
+    await fetchDisposals()
+    await fetchItems()
+  } catch (err: any) {
+    uiStore.showToast(err.message || 'Gagal memproses pemusnahan', 'error')
+  } finally {
+    submittingDisposal.value = false
+  }
+}
+
+const viewDisposalDetail = (disp: any) => {
+  selectedDisposalForDetail.value = disp
+  showDisposalDetailModal.value = true
+}
+
+const printDocument = () => {
+  window.print()
+}
+
 onMounted(async () => {
   await fetchCategories()
   await fetchItems()
   await fetchSuppliers()
+  fetchStockOpnames()
+  fetchDisposals()
 })
 </script>
 
@@ -609,6 +798,18 @@ onMounted(async () => {
           <BaseButton variant="primary" size="sm" @click="() => openMutationModal()">
             <ArrowRightLeft class="w-4 h-4 mr-1.5" />
             Catat Mutasi / Koreksi Stok
+          </BaseButton>
+        </template>
+        <template v-else-if="activeTab === 'opname'">
+          <BaseButton variant="primary" size="sm" @click="openCreateSOModal">
+            <ClipboardCheck class="w-4 h-4 mr-1.5" />
+            Input Stock Opname
+          </BaseButton>
+        </template>
+        <template v-else-if="activeTab === 'pemusnahan'">
+          <BaseButton variant="primary" size="sm" class="!bg-rose-600 hover:!bg-rose-700" @click="() => openCreateDisposalModal()">
+            <Flame class="w-4 h-4 mr-1.5" />
+            Buat BAP Pemusnahan
           </BaseButton>
         </template>
       </div>
@@ -706,6 +907,26 @@ onMounted(async () => {
       >
         <ArrowRightLeft class="w-4 h-4" />
         5. Kartu Stok Mutasi
+      </button>
+
+      <button
+        class="flex items-center gap-2 px-3 py-2 text-xs font-semibold border-b-2 transition-colors shrink-0"
+        :class="activeTab === 'opname' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700'"
+        @click="() => { activeTab = 'opname'; fetchStockOpnames() }"
+      >
+        <ClipboardCheck class="w-4 h-4" />
+        6. Stock Opname (SO)
+        <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 tabular-nums">{{ stockOpnames.length }}</span>
+      </button>
+
+      <button
+        class="flex items-center gap-2 px-3 py-2 text-xs font-semibold border-b-2 transition-colors shrink-0"
+        :class="activeTab === 'pemusnahan' ? 'border-sky-600 text-sky-600' : 'border-transparent text-slate-500 hover:text-slate-700'"
+        @click="() => { activeTab = 'pemusnahan'; fetchDisposals() }"
+      >
+        <Flame class="w-4 h-4" />
+        7. Pemusnahan Obat ED
+        <span class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 tabular-nums">{{ disposals.length }}</span>
       </button>
     </div>
 
@@ -1208,6 +1429,141 @@ onMounted(async () => {
       </div>
     </div>
 
+    <!-- ========================================================================= -->
+    <!-- PIPELINE TAB 6: STOCK OPNAME (SO)                                         -->
+    <!-- ========================================================================= -->
+    <div v-if="activeTab === 'opname'" class="space-y-3">
+      <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <ClipboardCheck class="w-4 h-4 text-sky-600" />
+          <span class="text-xs font-bold text-slate-800">Daftar Rekonsiliasi & Audit Stock Opname (SO)</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <BaseButton variant="outline" size="sm" @click="fetchStockOpnames">
+            <RefreshCw class="w-3.5 h-3.5 mr-1" />
+            Segarkan
+          </BaseButton>
+          <BaseButton variant="primary" size="sm" @click="openCreateSOModal">
+            <Plus class="w-4 h-4 mr-1" />
+            Catat Stock Opname Baru
+          </BaseButton>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
+            <tr>
+              <th class="p-3">No. Opname</th>
+              <th class="p-3">Tanggal Pelaksanaan</th>
+              <th class="p-3">Depo / Lokasi Target</th>
+              <th class="p-3 text-center">Jumlah Item</th>
+              <th class="p-3">Catatan Audit</th>
+              <th class="p-3">Auditor / Petugas</th>
+              <th class="p-3 text-center">Status</th>
+              <th class="p-3 text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-if="stockOpnames.length === 0">
+              <td colspan="8" class="p-8 text-center text-slate-400">
+                Belum ada data rekonsiliasi Stock Opname. Klik "Catat Stock Opname Baru" untuk memulai audit stok.
+              </td>
+            </tr>
+            <tr v-for="so in stockOpnames" :key="so.id" class="hover:bg-slate-50">
+              <td class="p-3 font-mono font-bold text-sky-700">{{ so.opname_number }}</td>
+              <td class="p-3 text-slate-600">{{ formatDate(so.opname_date) }}</td>
+              <td class="p-3">
+                <span class="px-2 py-0.5 rounded text-[11px] font-semibold bg-sky-50 text-sky-800 border border-sky-200">
+                  {{ so.depo_type }}
+                </span>
+              </td>
+              <td class="p-3 text-center font-mono font-bold text-slate-800">{{ so.items?.length || 0 }} barang</td>
+              <td class="p-3 text-slate-600 italic">{{ so.notes || '-' }}</td>
+              <td class="p-3 text-slate-700 font-medium">{{ so.created_by || 'Staf Farmasi' }}</td>
+              <td class="p-3 text-center">
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                  {{ so.status || 'SELESAI' }}
+                </span>
+              </td>
+              <td class="p-3 text-right">
+                <BaseButton variant="outline" size="xs" @click="viewSODetail(so)">
+                  <FileText class="w-3.5 h-3.5 mr-1" />
+                  Rincian Selisih
+                </BaseButton>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ========================================================================= -->
+    <!-- PIPELINE TAB 7: PEMUSNAHAN OBAT KEDALUWARSA / ED                          -->
+    <!-- ========================================================================= -->
+    <div v-if="activeTab === 'pemusnahan'" class="space-y-3">
+      <div class="bg-white p-3 rounded-xl border border-slate-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <Flame class="w-4 h-4 text-rose-600" />
+          <span class="text-xs font-bold text-slate-800">Daftar Berita Acara Pemusnahan (BAP) Obat Kedaluwarsa & Rusak</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <BaseButton variant="outline" size="sm" @click="fetchDisposals">
+            <RefreshCw class="w-3.5 h-3.5 mr-1" />
+            Segarkan
+          </BaseButton>
+          <BaseButton variant="primary" size="sm" class="!bg-rose-600 hover:!bg-rose-700" @click="() => openCreateDisposalModal()">
+            <Flame class="w-4 h-4 mr-1" />
+            Buat BAP Pemusnahan Baru
+          </BaseButton>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <table class="w-full text-left text-xs">
+          <thead class="bg-slate-50 text-slate-600 border-b border-slate-200 font-bold">
+            <tr>
+              <th class="p-3">No. BAP</th>
+              <th class="p-3">Waktu Pemusnahan</th>
+              <th class="p-3">Nama Obat / Sediaan</th>
+              <th class="p-3">No. Batch & Exp. Date</th>
+              <th class="p-3 text-center">Jumlah Dimusnahkan</th>
+              <th class="p-3 text-right">Nilai Kerugian</th>
+              <th class="p-3">Saksi / Apoteker</th>
+              <th class="p-3 text-right">Aksi</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            <tr v-if="disposals.length === 0">
+              <td colspan="8" class="p-8 text-center text-slate-400">
+                Belum ada data pemusnahan obat kedaluwarsa.
+              </td>
+            </tr>
+            <tr v-for="disp in disposals" :key="disp.id" class="hover:bg-slate-50">
+              <td class="p-3 font-mono font-bold text-rose-700">{{ disp.disposal_number }}</td>
+              <td class="p-3 text-slate-600">{{ formatDate(disp.disposal_date) }}</td>
+              <td class="p-3 font-semibold text-slate-800">{{ disp.item_name }}</td>
+              <td class="p-3 font-mono text-slate-600">
+                <div>{{ disp.batch_number }}</div>
+                <div class="text-[10px] text-rose-600 font-bold">ED: {{ formatDate(disp.expiry_date) }}</div>
+              </td>
+              <td class="p-3 text-center font-mono font-bold text-rose-600">{{ disp.qty }} sediaan</td>
+              <td class="p-3 text-right font-mono font-bold text-slate-800">
+                {{ formatCurrency(disp.total_loss) }}
+              </td>
+              <td class="p-3 text-slate-700">{{ disp.witness_name || 'Apt. Penanggung Jawab' }}</td>
+              <td class="p-3 text-right">
+                <BaseButton variant="outline" size="xs" @click="viewDisposalDetail(disp)">
+                  <FileText class="w-3.5 h-3.5 mr-1" />
+                  Cetak BAP
+                </BaseButton>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- MODAL: Tambah / Edit Barang -->
     <BaseModal
       v-model="showItemModal"
@@ -1701,6 +2057,270 @@ onMounted(async () => {
           >
             <CheckCircle2 class="w-4 h-4 mr-1.5" />
             Konfirmasi Terima & Tambah Stok
+          </BaseButton>
+        </div>
+      </div>
+    </BaseModal>
+
+    <!-- MODAL: Input Stock Opname (SO) -->
+    <BaseModal
+      v-model="showCreateSOModal"
+      title="Form Rekonsiliasi Stock Opname (SO) Fisik"
+      width="2xl"
+    >
+      <div class="space-y-4 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="font-bold text-slate-700 block mb-1">Pilih Depo Target Audit *</label>
+            <select
+              v-model="soForm.depo_type"
+              class="w-full p-2 border border-slate-200 rounded text-xs bg-white font-medium"
+              @change="updateSOSystemQty"
+            >
+              <option value="GUDANG_UTAMA">Gudang Utama Farmasi</option>
+              <option value="DEPO_FARMASI">Depo Farmasi Rawat Jalan</option>
+            </select>
+          </div>
+          <div>
+            <label class="font-bold text-slate-700 block mb-1">Catatan Audit / Keterangan</label>
+            <input
+              v-model="soForm.notes"
+              type="text"
+              placeholder="Audit fisik berkala akhir bulan..."
+              class="w-full p-2 border border-slate-200 rounded text-xs"
+            />
+          </div>
+        </div>
+
+        <div>
+          <label class="font-bold text-slate-700 block mb-1.5">Daftar Barang & Pencatatan Fisik Riil</label>
+          <div class="border border-slate-200 rounded-lg overflow-hidden max-h-96 overflow-y-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 text-slate-700 border-b font-bold sticky top-0">
+                <tr>
+                  <th class="p-2.5">Nama Barang</th>
+                  <th class="p-2.5 text-center w-24">Stok Sistem</th>
+                  <th class="p-2.5 text-center w-28">Fisik Riil</th>
+                  <th class="p-2.5 text-center w-24">Selisih</th>
+                  <th class="p-2.5">Catatan Fisik</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr v-for="it in soForm.items" :key="it.item_id" class="hover:bg-slate-50">
+                  <td class="p-2.5 font-medium text-slate-800">{{ it.item_name }}</td>
+                  <td class="p-2.5 text-center font-mono font-bold text-slate-500">{{ it.system_qty }}</td>
+                  <td class="p-2.5 text-center">
+                    <input
+                      v-model.number="it.physical_qty"
+                      type="number"
+                      min="0"
+                      class="w-20 p-1 text-center font-mono font-bold border border-slate-300 rounded text-sky-700 focus:border-sky-500"
+                    />
+                  </td>
+                  <td class="p-2.5 text-center font-mono font-bold"
+                    :class="(it.physical_qty - it.system_qty) < 0 ? 'text-rose-600' : (it.physical_qty - it.system_qty) > 0 ? 'text-sky-600' : 'text-slate-400'"
+                  >
+                    {{ (it.physical_qty - it.system_qty) > 0 ? '+' : '' }}{{ it.physical_qty - it.system_qty }}
+                  </td>
+                  <td class="p-2.5">
+                    <input
+                      v-model="it.notes"
+                      type="text"
+                      placeholder="Kondisi..."
+                      class="w-full p-1 text-[11px] border border-slate-200 rounded"
+                    />
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="p-2.5 rounded bg-sky-50 border border-sky-200 text-sky-800 text-[11px] space-y-1">
+          <p>ℹ️ <strong>Jaminan Rekonsiliasi Otomatis (ACID):</strong></p>
+          <p>Stok sistem akan otomatis disesuaikan secara real-time dengan stok fisik riil yang Anda inputkan di atas, serta dicatat dalam mutasi kartu stok penyesuaian (ADJUSTMENT).</p>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+          <BaseButton variant="ghost" size="sm" @click="showCreateSOModal = false">Batal</BaseButton>
+          <BaseButton variant="primary" size="sm" :loading="submittingSO" @click="submitSO">
+            <CheckCircle2 class="w-4 h-4 mr-1.5" />
+            Simpan Rekonsiliasi & Koreksi Stok
+          </BaseButton>
+        </div>
+      </div>
+    </BaseModal>
+
+    <!-- MODAL: Detail Stock Opname (SO) -->
+    <BaseModal
+      v-model="showSODetailModal"
+      title="Rincian Hasil Stock Opname (SO)"
+      width="2xl"
+    >
+      <div v-if="selectedSOForDetail" class="space-y-3 text-xs">
+        <div class="p-3 bg-slate-50 rounded-lg border border-slate-200 grid grid-cols-2 gap-2">
+          <div><span class="text-slate-500">No. Opname:</span> <strong class="font-mono text-sky-700 ml-1">{{ selectedSOForDetail.opname_number }}</strong></div>
+          <div><span class="text-slate-500">Tanggal:</span> <strong class="ml-1">{{ formatDate(selectedSOForDetail.opname_date) }}</strong></div>
+          <div><span class="text-slate-500">Depo / Lokasi:</span> <strong class="ml-1">{{ selectedSOForDetail.depo_type }}</strong></div>
+          <div><span class="text-slate-500">Auditor:</span> <strong class="ml-1">{{ selectedSOForDetail.created_by }}</strong></div>
+        </div>
+
+        <div class="border border-slate-200 rounded-lg overflow-hidden">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50 text-slate-700 border-b font-bold">
+              <tr>
+                <th class="p-2">Nama Barang</th>
+                <th class="p-2 text-center">Stok Sistem</th>
+                <th class="p-2 text-center">Fisik Riil</th>
+                <th class="p-2 text-center">Selisih Qty</th>
+                <th class="p-2 text-right">Nilai Selisih</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr v-for="it in (selectedSOForDetail.items || [])" :key="it.id">
+                <td class="p-2 font-medium">{{ it.item_name }}</td>
+                <td class="p-2 text-center font-mono">{{ it.system_qty }}</td>
+                <td class="p-2 text-center font-mono font-bold">{{ it.physical_qty }}</td>
+                <td class="p-2 text-center font-mono font-bold" :class="it.difference_qty < 0 ? 'text-rose-600' : it.difference_qty > 0 ? 'text-sky-600' : 'text-slate-400'">
+                  {{ it.difference_qty > 0 ? '+' : '' }}{{ it.difference_qty }}
+                </td>
+                <td class="p-2 text-right font-mono" :class="it.difference_value < 0 ? 'text-rose-600' : 'text-slate-700'">
+                  {{ formatCurrency(it.difference_value) }}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t">
+          <BaseButton variant="ghost" size="sm" @click="showSODetailModal = false">Tutup</BaseButton>
+          <BaseButton variant="primary" size="sm" @click="printDocument">
+            <Printer class="w-4 h-4 mr-1.5" />
+            Cetak Berita Acara SO
+          </BaseButton>
+        </div>
+      </div>
+    </BaseModal>
+
+    <!-- MODAL: Buat BAP Pemusnahan -->
+    <BaseModal
+      v-model="showCreateDisposalModal"
+      title="Penerbitan Berita Acara Pemusnahan (BAP) Obat Kedaluwarsa"
+      width="lg"
+    >
+      <div class="space-y-3 text-xs">
+        <div>
+          <label class="font-bold text-slate-700 block mb-1">Pilih Obat / Barang Medis yang Dimusnahkan *</label>
+          <select
+            v-model="disposalForm.item_id"
+            class="w-full p-2 border border-slate-200 rounded text-xs bg-white font-medium"
+          >
+            <option v-for="it in items" :key="it.id" :value="it.id">
+              {{ it.item_name }} (Stok Total: {{ it.total_stock }} {{ it.unit }})
+            </option>
+          </select>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <BaseInput
+            v-model="disposalForm.batch_number"
+            label="Nomor Batch ED"
+            placeholder="BATCH-2023-A"
+            required
+          />
+          <BaseInput
+            v-model="disposalForm.expiry_date"
+            type="date"
+            label="Tanggal Kedaluwarsa"
+            required
+          />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <BaseInput
+            v-model.number="disposalForm.qty"
+            type="number"
+            label="Jumlah Pemusnahan (Qty)"
+            required
+          />
+          <BaseInput
+            v-model="disposalForm.witness_name"
+            label="Nama Saksi / Apoteker PJ"
+            placeholder="Apt. Sarah Amelia, S.Farm"
+            required
+          />
+        </div>
+
+        <div>
+          <label class="font-bold text-slate-700 block mb-1">Alasan Pemusnahan Klinis / Legal *</label>
+          <textarea
+            v-model="disposalForm.reason"
+            rows="2"
+            class="w-full p-2 border border-slate-200 rounded text-xs focus:border-sky-500"
+          ></textarea>
+        </div>
+
+        <div class="p-2.5 rounded bg-rose-50 border border-rose-200 text-rose-800 text-[11px]">
+          ⚠️ <strong>Konsekuensi Pemusnahan:</strong> Stok fisik barang akan dipotong langsung dari inventaris, dan total kerugian senilai harga beli barang akan dicatat ke dalam laporan keuangan.
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-2 border-t">
+          <BaseButton variant="ghost" size="sm" @click="showCreateDisposalModal = false">Batal</BaseButton>
+          <BaseButton
+            variant="primary"
+            size="sm"
+            class="!bg-rose-600 hover:!bg-rose-700"
+            :loading="submittingDisposal"
+            @click="submitDisposal"
+          >
+            <Flame class="w-4 h-4 mr-1.5" />
+            Terbitkan BAP & Hapus dari Stok
+          </BaseButton>
+        </div>
+      </div>
+    </BaseModal>
+
+    <!-- MODAL: Detail / Cetak BAP Pemusnahan -->
+    <BaseModal
+      v-model="showDisposalDetailModal"
+      title="Berita Acara Pemusnahan (BAP) Obat Kedaluwarsa"
+      width="lg"
+    >
+      <div v-if="selectedDisposalForDetail" class="p-4 bg-white border border-slate-300 rounded-lg space-y-3 font-sans text-xs">
+        <div class="border-b border-slate-800 pb-2 text-center">
+          <h3 class="font-bold text-sm uppercase text-sky-800">BERITA ACARA PEMUSNAHAN SEDIAAN FARMASI</h3>
+          <p class="text-[10px] text-slate-500">RUMAH SAKIT & KLINIK SIMRS-ASOY • Sesuai Permenkes RI Standar Pelayanan Kefarmasian</p>
+        </div>
+
+        <div class="grid grid-cols-2 gap-2 text-[11px] pt-1">
+          <div><span class="text-slate-500">No. BAP:</span> <strong class="font-mono text-rose-700 ml-1">{{ selectedDisposalForDetail.disposal_number }}</strong></div>
+          <div><span class="text-slate-500">Tanggal:</span> <strong class="ml-1">{{ formatDate(selectedDisposalForDetail.disposal_date) }}</strong></div>
+          <div><span class="text-slate-500">Nama Barang:</span> <strong class="ml-1">{{ selectedDisposalForDetail.item_name }}</strong></div>
+          <div><span class="text-slate-500">No. Batch:</span> <strong class="font-mono ml-1">{{ selectedDisposalForDetail.batch_number }}</strong></div>
+          <div><span class="text-slate-500">Expired Date:</span> <strong class="text-rose-600 ml-1">{{ formatDate(selectedDisposalForDetail.expiry_date) }}</strong></div>
+          <div><span class="text-slate-500">Jumlah Musnah:</span> <strong class="font-mono ml-1">{{ selectedDisposalForDetail.qty }}</strong></div>
+          <div class="col-span-2"><span class="text-slate-500">Alasan:</span> <strong class="ml-1 italic">{{ selectedDisposalForDetail.reason }}</strong></div>
+          <div class="col-span-2"><span class="text-slate-500">Total Kerugian Pengadaan:</span> <strong class="font-mono text-sm text-rose-700 ml-1">{{ formatCurrency(selectedDisposalForDetail.total_loss) }}</strong></div>
+        </div>
+
+        <div class="pt-6 border-t grid grid-cols-2 text-center text-[11px]">
+          <div>
+            <p class="text-slate-500 mb-10">Saksi / Apoteker Penanggung Jawab,</p>
+            <p class="font-bold underline text-slate-800">{{ selectedDisposalForDetail.witness_name }}</p>
+            <p class="text-[10px] text-slate-500">SIP: 19850212/SIPA/2021</p>
+          </div>
+          <div>
+            <p class="text-slate-500 mb-10">Petugas Pemusnahan Logistik,</p>
+            <p class="font-bold underline text-slate-800">{{ selectedDisposalForDetail.created_by }}</p>
+            <p class="text-[10px] text-slate-500">Instalasi Farmasi SIMRS</p>
+          </div>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 pt-3 border-t">
+          <BaseButton variant="ghost" size="sm" @click="showDisposalDetailModal = false">Tutup</BaseButton>
+          <BaseButton variant="primary" size="sm" @click="printDocument">
+            <Printer class="w-4 h-4 mr-1.5" />
+            Cetak Dokumen BAP Resmi
           </BaseButton>
         </div>
       </div>

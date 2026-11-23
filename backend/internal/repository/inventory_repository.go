@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"simrs-asoy/backend/internal/domain"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type InventoryRepository struct {
@@ -476,4 +477,181 @@ func (r *InventoryRepository) FindGRNs() ([]domain.GoodsReceiptNote, error) {
 	`
 	err := r.db.Select(&grns, query)
 	return grns, err
+}
+
+// -------------------------------------------------------------
+// Stock Opname & Pemusnahan Obat (Fase 1)
+// -------------------------------------------------------------
+
+func (r *InventoryRepository) CreateStockOpname(so *domain.StockOpname, items []domain.StockOpnameItemDTO, currentUserID string) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	dateStr := time.Now().Format("200601")
+	var count int
+	_ = tx.Get(&count, "SELECT COUNT(*) FROM stock_opnames WHERE opname_number LIKE $1", fmt.Sprintf("SO-%s-%%", dateStr))
+	so.OpnameNumber = fmt.Sprintf("SO-%s-%03d", dateStr, count+1)
+	so.TotalItems = len(items)
+
+	query := `
+		INSERT INTO stock_opnames (opname_number, opname_date, depo_type, status, total_items, total_deviasi_nilai, notes, created_by, created_at)
+		VALUES ($1, CURRENT_DATE, $2, 'COMPLETED', $3, 0, $4, $5, NOW())
+		RETURNING id, opname_date, created_at
+	`
+	err = tx.QueryRow(query, so.OpnameNumber, so.DepoType, so.TotalItems, so.Notes, currentUserID).
+		Scan(&so.ID, &so.OpnameDate, &so.CreatedAt)
+	if err != nil {
+		return err
+	}
+
+	var totalDeviasiNilai float64
+	for _, it := range items {
+		// Row lock on inventory item
+		var invItem domain.InventoryItem
+		err = tx.Get(&invItem, "SELECT id, item_name, buy_price, depo_stock, total_stock FROM inventory_items WHERE id = $1 FOR UPDATE", it.ItemID)
+		if err != nil {
+			return err
+		}
+
+		systemQty := invItem.TotalStock
+		if so.DepoType == "DEPO_FARMASI" {
+			systemQty = invItem.DepoStock
+		}
+		diff := it.PhysicalQty - systemQty
+		diffValue := float64(diff) * invItem.BuyPrice
+		totalDeviasiNilai += diffValue
+
+		// Update stock to physical count
+		if so.DepoType == "DEPO_FARMASI" {
+			_, err = tx.Exec("UPDATE inventory_items SET depo_stock = $1, updated_at = NOW() WHERE id = $2", it.PhysicalQty, it.ItemID)
+		} else {
+			_, err = tx.Exec("UPDATE inventory_items SET total_stock = $1, updated_at = NOW() WHERE id = $2", it.PhysicalQty, it.ItemID)
+		}
+		if err != nil {
+			return err
+		}
+
+		// Log mutation
+		_, _ = tx.Exec(`
+			INSERT INTO stock_mutations (item_id, transaction_type, qty, source_depo, dest_depo, notes, created_by, created_at)
+			VALUES ($1, 'ADJUSTMENT', $2, $3, $3, $4, $5, NOW())
+		`, it.ItemID, diff, so.DepoType, fmt.Sprintf("Stock Opname %s (Fisik: %d, Sistem: %d)", so.OpnameNumber, it.PhysicalQty, systemQty), currentUserID)
+
+		// Record item
+		_, err = tx.Exec(`
+			INSERT INTO stock_opname_items (opname_id, item_id, item_name, system_qty, physical_qty, difference_qty, hpp_price, total_difference_value, notes, created_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+		`, so.ID, it.ItemID, invItem.ItemName, systemQty, it.PhysicalQty, diff, invItem.BuyPrice, diffValue, it.Notes)
+		if err != nil {
+			return err
+		}
+	}
+
+	// Update total deviation value
+	_, _ = tx.Exec("UPDATE stock_opnames SET total_deviasi_nilai = $1 WHERE id = $2", totalDeviasiNilai, so.ID)
+	so.TotalDeviasiNilai = totalDeviasiNilai
+
+	return tx.Commit()
+}
+
+func (r *InventoryRepository) GetStockOpnames(page, limit int) ([]domain.StockOpname, int, error) {
+	offset := (page - 1) * limit
+	var total int
+	err := r.db.Get(&total, "SELECT COUNT(*) FROM stock_opnames")
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, opname_number, opname_date::TEXT, depo_type, status, total_items, total_deviasi_nilai,
+		       COALESCE(notes, '') as notes, created_by, created_at
+		FROM stock_opnames
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+	var list []domain.StockOpname
+	err = r.db.Select(&list, query, limit, offset)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	for i := range list {
+		var itms []domain.StockOpnameItem
+		_ = r.db.Select(&itms, "SELECT id, opname_id, item_id, item_name, system_qty, physical_qty, difference_qty, hpp_price, total_difference_value, COALESCE(notes, '') as notes, created_at FROM stock_opname_items WHERE opname_id = $1", list[i].ID)
+		list[i].Items = itms
+	}
+
+	return list, total, nil
+}
+
+func (r *InventoryRepository) CreateMedicineDisposal(disp *domain.MedicineDisposal, currentUserID string) error {
+	tx, err := r.db.Beginx()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	dateStr := time.Now().Format("200601")
+	var count int
+	_ = tx.Get(&count, "SELECT COUNT(*) FROM medicine_disposals WHERE disposal_number LIKE $1", fmt.Sprintf("BAP-%s-%%", dateStr))
+	disp.DisposalNumber = fmt.Sprintf("BAP-%s-%03d", dateStr, count+1)
+
+	var invItem domain.InventoryItem
+	err = tx.Get(&invItem, "SELECT id, item_name, buy_price, total_stock FROM inventory_items WHERE id = $1 FOR UPDATE", disp.ItemID)
+	if err != nil {
+		return err
+	}
+
+	disp.ItemName = invItem.ItemName
+	disp.UnitPrice = invItem.BuyPrice
+	disp.TotalLoss = float64(disp.Qty) * invItem.BuyPrice
+
+	query := `
+		INSERT INTO medicine_disposals (disposal_number, item_id, item_name, batch_number, expiry_date, qty, unit_price, total_loss, reason, witness_name, created_by, created_at)
+		VALUES ($1, $2, $3, $4, $5::DATE, $6, $7, $8, $9, $10, $11, NOW())
+		RETURNING id, created_at
+	`
+	err = tx.QueryRow(query, disp.DisposalNumber, disp.ItemID, disp.ItemName, disp.BatchNumber, disp.ExpiryDate,
+		disp.Qty, disp.UnitPrice, disp.TotalLoss, disp.Reason, disp.WitnessName, currentUserID).
+		Scan(&disp.ID, &disp.CreatedAt)
+	if err != nil {
+		return err
+	}
+
+	// Deduct destroyed stock from warehouse
+	_, err = tx.Exec("UPDATE inventory_items SET total_stock = GREATEST(0, total_stock - $1), updated_at = NOW() WHERE id = $2", disp.Qty, disp.ItemID)
+	if err != nil {
+		return err
+	}
+
+	// Log mutation
+	_, _ = tx.Exec(`
+		INSERT INTO stock_mutations (item_id, transaction_type, qty, source_depo, dest_depo, notes, created_by, created_at)
+		VALUES ($1, 'ADJUSTMENT', -$2, 'GUDANG_UTAMA', 'PEMUSNAHAN', $3, $4, NOW())
+	`, disp.ItemID, disp.Qty, fmt.Sprintf("Pemusnahan BAP %s: %s (Batch: %s)", disp.DisposalNumber, disp.Reason, disp.BatchNumber), currentUserID)
+
+	return tx.Commit()
+}
+
+func (r *InventoryRepository) GetMedicineDisposals(page, limit int) ([]domain.MedicineDisposal, int, error) {
+	offset := (page - 1) * limit
+	var total int
+	err := r.db.Get(&total, "SELECT COUNT(*) FROM medicine_disposals")
+	if err != nil {
+		return nil, 0, err
+	}
+
+	query := `
+		SELECT id, disposal_number, item_id, item_name, batch_number, expiry_date::TEXT,
+		       qty, unit_price, total_loss, reason, witness_name, created_by, created_at
+		FROM medicine_disposals
+		ORDER BY created_at DESC
+		LIMIT $1 OFFSET $2
+	`
+	var list []domain.MedicineDisposal
+	err = r.db.Select(&list, query, limit, offset)
+	return list, total, err
 }

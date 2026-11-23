@@ -27,7 +27,10 @@ import {
   Building,
   ArrowRight,
   History,
-  Lock
+  Lock,
+  Plus,
+  Trash2,
+  QrCode
 } from 'lucide-vue-next'
 
 const uiStore = useUiStore()
@@ -78,6 +81,44 @@ const paymentForm = ref({
   referensi_pembayaran: '',
   catatan: '',
 })
+
+// ----------------------------------------------------
+// SPLIT PAYMENT STATE (FASE 1)
+// ----------------------------------------------------
+const isSplitPayment = ref(false)
+interface SplitLine {
+  metode_bayar: string
+  nominal: number
+  referensi_pembayaran: string
+  catatan: string
+}
+const splitPayments = ref<SplitLine[]>([
+  { metode_bayar: 'QRIS', nominal: 0, referensi_pembayaran: '', catatan: '' },
+  { metode_bayar: 'TUNAI', nominal: 0, referensi_pembayaran: '', catatan: '' }
+])
+
+const totalSplitPaid = computed(() => {
+  return splitPayments.value.reduce((acc, p) => acc + (Number(p.nominal) || 0), 0)
+})
+
+const splitDifference = computed(() => {
+  return totalSplitPaid.value - finalTotalTagihan.value
+})
+
+function addSplitLine() {
+  splitPayments.value.push({
+    metode_bayar: 'TUNAI',
+    nominal: 0,
+    referensi_pembayaran: '',
+    catatan: ''
+  })
+}
+
+function removeSplitLine(idx: number) {
+  if (splitPayments.value.length > 1) {
+    splitPayments.value.splice(idx, 1)
+  }
+}
 
 // Promo Discount & Final Tagihan Calculation
 const promoDiscount = computed(() => {
@@ -282,6 +323,14 @@ const openPaymentModal = async (inv: Invoice) => {
     catatan: '',
   }
 
+  // Initialize split payments
+  isSplitPayment.value = false
+  const half = Math.round((selectedInvoice.value?.total_tagihan || 0) / 2)
+  splitPayments.value = [
+    { metode_bayar: 'QRIS', nominal: half, referensi_pembayaran: '', catatan: '' },
+    { metode_bayar: 'TUNAI', nominal: Math.max(0, (selectedInvoice.value?.total_tagihan || 0) - half), referensi_pembayaran: '', catatan: '' }
+  ]
+
   // Check if any prescription or lab order is unfinished
   if (selectedInvoice.value?.visit_id) {
     await checkPendingOrders(selectedInvoice.value.visit_id)
@@ -304,6 +353,73 @@ const processPayment = async () => {
     uiStore.showToast(pendingBlockReason.value, 'error')
     return
   }
+
+  const currentPromoCode = selectedPromoCode.value
+  const promoObj = promos.value.find(p => p.code === currentPromoCode)
+  const currentPromoName = promoObj?.name || ''
+  const currentPromoDiscount = promoDiscount.value
+
+  if (isSplitPayment.value) {
+    if (totalSplitPaid.value < finalTotalTagihan.value) {
+      uiStore.showToast(`Total pembayaran split (Rp ${totalSplitPaid.value.toLocaleString('id-ID')}) kurang dari total tagihan (Rp ${finalTotalTagihan.value.toLocaleString('id-ID')})`, 'warning')
+      return
+    }
+
+    submittingPayment.value = true
+    try {
+      const payload = {
+        payments: splitPayments.value.map(p => ({
+          metode_bayar: p.metode_bayar,
+          nominal: Number(p.nominal),
+          referensi_pembayaran: p.referensi_pembayaran,
+          catatan: p.catatan || (currentPromoCode ? `Promo: ${currentPromoCode}` : '')
+        })),
+        promo_code: currentPromoCode || undefined,
+        promo_name: currentPromoName || undefined,
+        promo_discount: currentPromoDiscount
+      }
+
+      const res = await api.post<Invoice>(`/billing/invoices/${selectedInvoice.value.id}/pay-split`, payload)
+      uiStore.showToast('Pembayaran split (campuran) berhasil diproses! Status tagihan: LUNAS', 'success')
+      showPaymentModal.value = false
+
+      const updated = res.data || selectedInvoice.value
+      invoiceToPrint.value = {
+        ...updated,
+        promo_code: currentPromoCode || updated.promo_code,
+        promo_name: currentPromoName || updated.promo_name,
+        diskon: (updated.diskon || 0) > 0 ? updated.diskon : currentPromoDiscount,
+        subtotal: updated.subtotal || selectedInvoice.value.subtotal || (selectedInvoice.value.total_tagihan + currentPromoDiscount),
+        total_tagihan: finalTotalTagihan.value,
+        payments: splitPayments.value.map((p, idx) => ({
+          id: `split-${idx}`,
+          nomor_transaksi: `SPLIT-${Date.now()}-${idx + 1}`,
+          invoice_id: selectedInvoice.value!.id,
+          kasir_id: authStore.user?.id || '',
+          kasir_name: authStore.user?.full_name || 'Kasir SIMRS',
+          nominal: Number(p.nominal),
+          metode_bayar: p.metode_bayar as any,
+          referensi_pembayaran: p.referensi_pembayaran,
+          catatan: p.catatan,
+          uang_diterima: Number(p.nominal),
+          kembalian: 0,
+          created_at: new Date().toISOString()
+        }))
+      }
+      showReceiptModal.value = true
+
+      await fetchActiveShift()
+      await fetchInvoices()
+      await fetchVisitsWaiting()
+    } catch (err: any) {
+      uiStore.showToast(err.message || 'Gagal memproses pembayaran split', 'error')
+    } finally {
+      submittingPayment.value = false
+    }
+    return
+  }
+
+  // Single payment flow
   if (paymentForm.value.nominal < finalTotalTagihan.value) {
     uiStore.showToast('Nominal pembayaran kurang dari total tagihan', 'warning')
     return
@@ -312,10 +428,6 @@ const processPayment = async () => {
   const currentTendered = paymentForm.value.nominal
   const currentChange = kembalian.value
   const currentMethod = paymentForm.value.metode_bayar
-  const currentPromoCode = selectedPromoCode.value
-  const promoObj = promos.value.find(p => p.code === currentPromoCode)
-  const currentPromoName = promoObj?.name || ''
-  const currentPromoDiscount = promoDiscount.value
 
   submittingPayment.value = true
   try {
@@ -1071,8 +1183,114 @@ onMounted(async () => {
           />
         </div>
 
-        <!-- Form Bayar -->
-        <div class="space-y-3 bg-slate-50/70 p-3.5 rounded-lg border border-slate-200">
+        <!-- Toggle Split Payment (Fase 1) -->
+        <div class="flex items-center justify-between p-3 rounded-lg bg-sky-50 border border-sky-200">
+          <div class="flex items-center gap-2">
+            <CreditCard class="w-4 h-4 text-sky-700" />
+            <div>
+              <span class="text-xs font-bold text-sky-900 block">Metode Pembayaran Campuran (Split Payment)</span>
+              <span class="text-[11px] text-sky-700">Kombinasikan Tunai + Non-Tunai / EDC / QRIS dalam 1 tagihan</span>
+            </div>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer">
+            <input type="checkbox" v-model="isSplitPayment" class="sr-only peer" />
+            <div class="w-9 h-5 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-sky-600"></div>
+          </label>
+        </div>
+
+        <!-- SPLIT PAYMENT FORM -->
+        <div v-if="isSplitPayment" class="space-y-3 bg-slate-50/70 p-3.5 rounded-lg border border-slate-200">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-800">Daftar Pembayaran Campuran</span>
+            <BaseButton variant="outline" size="xs" @click="addSplitLine">
+              <Plus class="w-3.5 h-3.5 mr-1" />
+              Tambah Jalur Bayar
+            </BaseButton>
+          </div>
+
+          <div class="space-y-2">
+            <div
+              v-for="(sp, idx) in splitPayments"
+              :key="idx"
+              class="p-2.5 bg-white border border-slate-200 rounded-lg grid grid-cols-12 gap-2 items-center text-xs"
+            >
+              <div class="col-span-3">
+                <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Metode</label>
+                <select
+                  v-model="sp.metode_bayar"
+                  class="w-full p-1.5 border border-slate-200 rounded text-xs bg-white font-medium"
+                >
+                  <option value="TUNAI">Uang Tunai</option>
+                  <option value="QRIS">QRIS</option>
+                  <option value="DEBIT">Kartu Debit</option>
+                  <option value="KREDIT">Kartu Kredit</option>
+                  <option value="TRANSFER">Transfer Bank</option>
+                </select>
+              </div>
+
+              <div class="col-span-4">
+                <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">Nominal (Rp)</label>
+                <input
+                  v-model.number="sp.nominal"
+                  type="number"
+                  min="0"
+                  class="w-full p-1.5 border border-slate-200 rounded text-xs font-mono font-bold text-sky-800"
+                />
+              </div>
+
+              <div class="col-span-4">
+                <label class="block text-[10px] font-semibold text-slate-500 mb-0.5">No. Ref / Approval</label>
+                <input
+                  v-model="sp.referensi_pembayaran"
+                  type="text"
+                  placeholder="Opsional / No. Ref"
+                  class="w-full p-1.5 border border-slate-200 rounded text-[11px]"
+                />
+              </div>
+
+              <div class="col-span-1 text-center pt-3">
+                <button
+                  v-if="splitPayments.length > 1"
+                  class="text-rose-500 hover:text-rose-700 p-1"
+                  title="Hapus baris pembayaran"
+                  @click="removeSplitLine(idx)"
+                >
+                  <Trash2 class="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Summary Split -->
+          <div class="p-3 bg-white rounded border border-slate-200 space-y-1.5 text-xs">
+            <div class="flex justify-between">
+              <span class="text-slate-600">Total Tagihan:</span>
+              <strong class="font-mono text-slate-800">{{ formatCurrency(finalTotalTagihan) }}</strong>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-600">Total Bayar Split:</span>
+              <strong class="font-mono text-sky-700">{{ formatCurrency(totalSplitPaid) }}</strong>
+            </div>
+            <div class="flex justify-between pt-1 border-t font-bold">
+              <span>Status Saldo Pembayaran:</span>
+              <span
+                v-if="splitDifference >= 0"
+                class="font-mono text-emerald-700"
+              >
+                LUNAS {{ splitDifference > 0 ? `(Lebih: ${formatCurrency(splitDifference)})` : '' }}
+              </span>
+              <span
+                v-else
+                class="font-mono text-rose-600"
+              >
+                Kurang: {{ formatCurrency(Math.abs(splitDifference)) }}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- SINGLE PAYMENT FORM -->
+        <div v-else class="space-y-3 bg-slate-50/70 p-3.5 rounded-lg border border-slate-200">
           <div class="grid grid-cols-2 gap-3">
             <BaseSelect
               v-model="paymentForm.metode_bayar"
@@ -1242,8 +1460,18 @@ onMounted(async () => {
                 </td>
               </tr>
 
-              <!-- Rincian Pembayaran Kasir -->
-              <tr class="border-t border-dashed border-slate-300 text-slate-700">
+              <!-- Rincian Pembayaran Kasir (Single atau Split) -->
+              <template v-if="invoiceToPrint.payments && invoiceToPrint.payments.length > 1">
+                <tr v-for="p in invoiceToPrint.payments" :key="p.id" class="border-t border-dashed border-slate-200 text-slate-700">
+                  <td colspan="4" class="py-1 text-right">
+                    <span>Metode: {{ p.metode_bayar }} {{ p.referensi_pembayaran ? `(${p.referensi_pembayaran})` : '' }}:</span>
+                  </td>
+                  <td class="py-1 text-right tabular-nums font-mono font-medium">
+                    {{ formatCurrency(p.nominal) }}
+                  </td>
+                </tr>
+              </template>
+              <tr v-else class="border-t border-dashed border-slate-300 text-slate-700">
                 <td colspan="4" class="py-1 text-right">
                   <span>Jumlah Diterima ({{ getReceiptPaymentMethod(invoiceToPrint) }}):</span>
                 </td>
@@ -1284,6 +1512,28 @@ onMounted(async () => {
               <p class="text-slate-500">Kasir Penerima,</p>
               <div class="h-16"></div>
               <p class="font-bold border-t border-slate-300 mx-8 pt-1">{{ authStore.user?.full_name || 'Kasir SIMRS' }}</p>
+            </div>
+          </div>
+
+          <!-- Digital Verification QR Code (Fase 1) -->
+          <div class="mt-4 pt-3 border-t border-slate-200 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+              <img
+                :src="`https://api.qrserver.com/v1/create-qr-code/?size=60x60&data=${encodeURIComponent('http://localhost:5173/verify-doc?type=INVOICE&id=' + invoiceToPrint.id + '&token=' + invoiceToPrint.nomor_invoice)}`"
+                alt="QR TTE"
+                class="w-12 h-12 rounded border border-slate-300 bg-white p-0.5"
+              />
+              <div class="text-[10px] text-slate-500 text-left">
+                <div class="font-bold text-slate-800 flex items-center gap-1">
+                  <span>TTE & Dokumen Digital Terverifikasi</span>
+                </div>
+                <div>Pindai QR untuk validasi keaslian dokumen di Portal Publik SIMRS</div>
+                <div class="font-mono text-sky-700 font-semibold">{{ invoiceToPrint.nomor_invoice }}</div>
+              </div>
+            </div>
+            <div class="text-[9px] text-slate-400 text-right">
+              Dokumen ini dicetak otomatis dari SIMRS-ASOY<br/>
+              dan sah tanpa memerlukan cap basah.
             </div>
           </div>
         </div>

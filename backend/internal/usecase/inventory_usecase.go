@@ -259,3 +259,92 @@ func (u *InventoryUsecase) CreateGRN(req domain.CreateGRNRequest, currentUserID,
 func (u *InventoryUsecase) GetGRNs() ([]domain.GoodsReceiptNote, error) {
 	return u.invRepo.FindGRNs()
 }
+
+// -------------------------------------------------------------
+// Stock Opname & Pemusnahan Obat (Fase 1)
+// -------------------------------------------------------------
+
+func (u *InventoryUsecase) CreateStockOpname(req domain.CreateStockOpnameRequest, currentUserID, currentUsername string) (*domain.StockOpname, error) {
+	if len(req.Items) == 0 {
+		return nil, errors.New("daftar item hasil penghitungan fisik stock opname wajib diisi")
+	}
+
+	depoType := req.DepoType
+	if depoType == "" {
+		depoType = "GUDANG_UTAMA"
+	}
+
+	so := &domain.StockOpname{
+		DepoType:  depoType,
+		Notes:     req.Notes,
+		CreatedBy: &currentUserID,
+	}
+
+	err := u.invRepo.CreateStockOpname(so, req.Items, currentUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = u.auditRepo.Log(&domain.AuditLog{
+		UserID:     &currentUserID,
+		Username:   currentUsername,
+		Action:     "CREATE_STOCK_OPNAME",
+		EntityType: "stock_opname",
+		EntityID:   so.ID,
+		Details:    fmt.Sprintf(`{"opname_number": "%s", "depo": "%s", "items": %d}`, so.OpnameNumber, so.DepoType, len(req.Items)),
+	})
+
+	return so, nil
+}
+
+func (u *InventoryUsecase) GetStockOpnames(page, limit int) ([]domain.StockOpname, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	return u.invRepo.GetStockOpnames(page, limit)
+}
+
+func (u *InventoryUsecase) CreateMedicineDisposal(req domain.CreateMedicineDisposalRequest, currentUserID, currentUsername string) (*domain.MedicineDisposal, error) {
+	if req.ItemID <= 0 || req.Qty <= 0 || req.BatchNumber == "" || req.ExpiryDate == "" || req.WitnessName == "" {
+		return nil, errors.New("item obat, jumlah, no. batch, tanggal kedaluwarsa, dan saksi wajib diisi")
+	}
+
+	disp := &domain.MedicineDisposal{
+		ItemID:      req.ItemID,
+		BatchNumber: req.BatchNumber,
+		ExpiryDate:  req.ExpiryDate,
+		Qty:         req.Qty,
+		Reason:      req.Reason,
+		WitnessName: req.WitnessName,
+		CreatedBy:   &currentUserID,
+	}
+
+	err := u.invRepo.CreateMedicineDisposal(disp, currentUserID)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = u.auditRepo.Log(&domain.AuditLog{
+		UserID:     &currentUserID,
+		Username:   currentUsername,
+		Action:     "CREATE_MEDICINE_DISPOSAL",
+		EntityType: "medicine_disposal",
+		EntityID:   disp.ID,
+		Details:    fmt.Sprintf(`{"bap_number": "%s", "item": "%s", "loss": %.2f}`, disp.DisposalNumber, disp.ItemName, disp.TotalLoss),
+	})
+
+	return disp, nil
+}
+
+func (u *InventoryUsecase) GetMedicineDisposals(page, limit int) ([]domain.MedicineDisposal, int, error) {
+	if page <= 0 {
+		page = 1
+	}
+	if limit <= 0 {
+		limit = 10
+	}
+	return u.invRepo.GetMedicineDisposals(page, limit)
+}

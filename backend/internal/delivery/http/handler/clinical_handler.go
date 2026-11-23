@@ -184,3 +184,40 @@ func (h *ClinicalHandler) GetNursingAssessment(w http.ResponseWriter, r *http.Re
 	}
 	RespondSuccess(w, "Asesmen keperawatan berhasil diambil", na)
 }
+
+// 6. Informed Consent Digital Handlers (Fase 1)
+func (h *ClinicalHandler) CreateInformedConsent(w http.ResponseWriter, r *http.Request) {
+	var req domain.CreateInformedConsentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		RespondBadRequest(w, "Format request body tidak valid", err.Error())
+		return
+	}
+
+	claims := middleware.GetCurrentUser(r)
+	ic, err := h.clinicalUsecase.CreateInformedConsent(req, claims.UserID, claims.Username)
+	if err != nil {
+		RespondBadRequest(w, err.Error(), nil)
+		return
+	}
+	RespondCreated(w, "Informed consent digital berhasil disimpan", ic)
+}
+
+func (h *ClinicalHandler) GetInformedConsentsByVisit(w http.ResponseWriter, r *http.Request) {
+	visitID := chi.URLParam(r, "visit_id")
+	list, err := h.clinicalUsecase.GetInformedConsentsByVisit(visitID)
+	if err != nil {
+		RespondInternalError(w, err)
+		return
+	}
+	RespondSuccess(w, "Data informed consent berhasil diambil", list)
+}
+
+func (h *ClinicalHandler) GetInformedConsentByID(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	ic, err := h.clinicalUsecase.GetInformedConsentByID(id)
+	if err != nil {
+		RespondNotFound(w, "Dokumen informed consent tidak ditemukan")
+		return
+	}
+	RespondSuccess(w, "Dokumen informed consent berhasil diambil", ic)
+}
