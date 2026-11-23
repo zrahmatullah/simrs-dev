@@ -675,6 +675,17 @@ const disposalForm = ref({
   witness_name: 'Apt. Sarah Amelia, S.Farm'
 })
 
+const medicineOptionsForDisposal = computed(() => {
+  return items.value.map(it => ({
+    value: it.id,
+    label: it.item_name,
+    subtitle: `Kode: ${it.item_code} • Kategori: ${it.category_name || 'Obat Medis'} • Rak: ${it.rack_location || '-'}`,
+    stock: it.total_stock,
+    unit: it.unit,
+    badge: `Stok: ${it.total_stock} ${it.unit}`
+  }))
+})
+
 const fetchDisposals = async () => {
   loadingDisposals.value = true
   try {
@@ -2071,23 +2082,22 @@ onMounted(async () => {
       <div class="space-y-4 text-xs">
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="font-bold text-slate-700 block mb-1">Pilih Depo Target Audit *</label>
-            <select
+            <BaseSelect
               v-model="soForm.depo_type"
-              class="w-full p-2 border border-slate-200 rounded text-xs bg-white font-medium"
+              label="Pilih Depo Target Audit"
+              :options="[
+                { value: 'GUDANG_UTAMA', label: 'Gudang Utama Farmasi' },
+                { value: 'DEPO_FARMASI', label: 'Depo Farmasi Rawat Jalan' }
+              ]"
+              required
               @change="updateSOSystemQty"
-            >
-              <option value="GUDANG_UTAMA">Gudang Utama Farmasi</option>
-              <option value="DEPO_FARMASI">Depo Farmasi Rawat Jalan</option>
-            </select>
+            />
           </div>
           <div>
-            <label class="font-bold text-slate-700 block mb-1">Catatan Audit / Keterangan</label>
-            <input
+            <BaseInput
               v-model="soForm.notes"
-              type="text"
+              label="Catatan Audit / Keterangan"
               placeholder="Audit fisik berkala akhir bulan..."
-              class="w-full p-2 border border-slate-200 rounded text-xs"
             />
           </div>
         </div>
@@ -2210,15 +2220,14 @@ onMounted(async () => {
     >
       <div class="space-y-3 text-xs">
         <div>
-          <label class="font-bold text-slate-700 block mb-1">Pilih Obat / Barang Medis yang Dimusnahkan *</label>
-          <select
+          <SearchableSelect
             v-model="disposalForm.item_id"
-            class="w-full p-2 border border-slate-200 rounded text-xs bg-white font-medium"
-          >
-            <option v-for="it in items" :key="it.id" :value="it.id">
-              {{ it.item_name }} (Stok Total: {{ it.total_stock }} {{ it.unit }})
-            </option>
-          </select>
+            label="Pilih Obat / Barang Medis yang Dimusnahkan"
+            :options="medicineOptionsForDisposal"
+            placeholder="-- Cari Obat / Sediaan Medis --"
+            search-placeholder="Ketik nama obat atau kode..."
+            required
+          />
         </div>
 
         <div class="grid grid-cols-2 gap-3">
