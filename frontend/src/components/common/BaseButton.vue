@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 
 interface Props {
   variant?: 'primary' | 'secondary' | 'soft' | 'danger' | 'ghost' | 'outline'
   size?: 'xs' | 'sm' | 'md' | 'lg'
   type?: 'button' | 'submit' | 'reset'
   loading?: boolean
+  autoLoading?: boolean
+  loadingDuration?: number
+  loadingText?: string
   disabled?: boolean
   block?: boolean
 }
@@ -15,6 +18,9 @@ const props = withDefaults(defineProps<Props>(), {
   size: 'md',
   type: 'button',
   loading: false,
+  autoLoading: true,
+  loadingDuration: 400,
+  loadingText: '',
   disabled: false,
   block: false,
 })
@@ -22,6 +28,11 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<{
   (e: 'click', event: MouseEvent): void
 }>()
+
+const isClicking = ref(false)
+let timer: any = null
+
+const isBusy = computed(() => props.loading || isClicking.value)
 
 const sizeClasses = computed(() => {
   switch (props.size) {
@@ -34,6 +45,20 @@ const sizeClasses = computed(() => {
     case 'md':
     default:
       return 'h-[36px] px-3.5 text-[13px]'
+  }
+})
+
+const spinnerSizeClasses = computed(() => {
+  switch (props.size) {
+    case 'xs':
+      return 'h-3 w-3'
+    case 'sm':
+      return 'h-3.5 w-3.5'
+    case 'lg':
+      return 'h-5 w-5'
+    case 'md':
+    default:
+      return 'h-4 w-4'
   }
 })
 
@@ -56,7 +81,20 @@ const variantClasses = computed(() => {
 })
 
 function handleClick(e: MouseEvent) {
-  if (props.loading || props.disabled) return
+  if (isBusy.value || props.disabled) {
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
+
+  if (props.autoLoading) {
+    isClicking.value = true
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      isClicking.value = false
+    }, props.loadingDuration)
+  }
+
   emit('click', e)
 }
 </script>
@@ -64,20 +102,21 @@ function handleClick(e: MouseEvent) {
 <template>
   <button
     :type="type"
-    :disabled="disabled || loading"
+    :disabled="disabled || isBusy"
     :class="[
-      'inline-flex items-center justify-center gap-1.5 font-medium rounded-[6px] transition-all duration-150 select-none outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:ring-offset-1',
+      'inline-flex items-center justify-center gap-1.5 font-medium rounded-[6px] transition-all duration-150 select-none outline-none focus:ring-2 focus:ring-[#0EA5E9] focus:ring-offset-1 relative',
       sizeClasses,
       variantClasses,
       block ? 'w-full' : '',
-      (disabled || loading) ? 'opacity-55 cursor-not-allowed' : 'cursor-pointer active:scale-[0.98]'
+      disabled ? 'opacity-50 cursor-not-allowed' : '',
+      isBusy ? 'opacity-80 cursor-wait pointer-events-none' : 'cursor-pointer active:scale-[0.98]'
     ]"
     @click="handleClick"
   >
-    <!-- Loading Spinner -->
+    <!-- Loading Spinner Animation -->
     <svg
-      v-if="loading"
-      class="animate-spin -ml-0.5 mr-1.5 h-4 w-4 text-current"
+      v-if="isBusy"
+      :class="['animate-spin shrink-0 text-current', spinnerSizeClasses]"
       xmlns="http://www.w3.org/2000/svg"
       fill="none"
       viewBox="0 0 24 24"
@@ -86,7 +125,11 @@ function handleClick(e: MouseEvent) {
       <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
     </svg>
 
-    <slot name="icon"></slot>
-    <slot></slot>
+    <!-- Slot Icon (Hidden when isBusy to prevent jump) -->
+    <slot v-if="!isBusy" name="icon"></slot>
+
+    <!-- Content Slot or Loading Text -->
+    <span v-if="isBusy && loadingText" class="truncate">{{ loadingText }}</span>
+    <slot v-else></slot>
   </button>
 </template>
