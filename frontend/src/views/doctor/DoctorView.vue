@@ -1076,26 +1076,30 @@ onMounted(async () => {
           <template #actions="{ row }">
             <div class="flex items-center justify-end gap-1.5">
               <!-- Button Panggil Pasien -->
-              <button
-                type="button"
-                class="px-2.5 py-1.5 rounded-[6px] text-[12px] font-semibold bg-[#F0F9FF] border border-[#BAE6FD] text-[#0284C7] hover:bg-[#E0F2FE] transition-colors flex items-center gap-1 shadow-2xs"
+              <BaseButton
+                variant="soft"
+                size="sm"
                 title="Panggil pasien via speaker antrean"
                 @click="callPatient(row)"
               >
-                <Volume2 class="w-3.5 h-3.5" />
+                <template #icon>
+                  <Volume2 class="w-3.5 h-3.5" />
+                </template>
                 Panggil
-              </button>
+              </BaseButton>
 
               <!-- Button Masuk EMR -->
-              <button
-                type="button"
-                class="px-3 py-1.5 rounded-[6px] text-[12px] font-semibold bg-[#0284C7] hover:bg-[#0369A1] text-white transition-colors flex items-center gap-1.5 shadow-xs"
+              <BaseButton
+                variant="primary"
+                size="sm"
                 title="Buka rekam medis pasien (EMR)"
                 @click="enterEMR(row)"
               >
-                <Stethoscope class="w-3.5 h-3.5" />
+                <template #icon>
+                  <Stethoscope class="w-3.5 h-3.5" />
+                </template>
                 EMR
-              </button>
+              </BaseButton>
             </div>
           </template>
         </DataTable>
@@ -1111,14 +1115,16 @@ onMounted(async () => {
         <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           <!-- Back Button & Patient Identity -->
           <div class="flex items-center gap-3">
-            <button
-              type="button"
-              class="px-2.5 py-1.5 rounded-[6px] bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#334155] text-[12px] font-semibold transition-colors flex items-center gap-1.5 shadow-2xs"
+            <BaseButton
+              variant="secondary"
+              size="sm"
               @click="leaveEMR"
             >
-              <ArrowLeft class="w-4 h-4" />
+              <template #icon>
+                <ArrowLeft class="w-4 h-4" />
+              </template>
               Kembali ke Antrean
-            </button>
+            </BaseButton>
 
             <div class="h-6 w-px bg-[#E2E8F0] hidden sm:block"></div>
 
