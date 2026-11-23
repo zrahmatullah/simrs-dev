@@ -68,6 +68,11 @@ func SetupRouter(p RouterParams) *chi.Mux {
 		v1.Post("/auth/refresh", p.AuthHandler.RefreshToken)
 		v1.Post("/auth/logout", p.AuthHandler.Logout)
 
+		// Public Endpoints (TV Display Antrean & Verifikasi Dokumen TTE)
+		v1.Get("/public/verify-doc", p.BillingHandler.VerifyPublicDocument)
+		v1.Get("/public/queue/display", p.VisitHandler.GetVisits)
+		v1.Get("/public/queue/metrics", p.VisitHandler.GetQueueMetrics)
+
 		// Protected Routes
 		v1.Group(func(auth chi.Router) {
 			auth.Use(middleware.Auth(p.Config))
@@ -133,6 +138,13 @@ func SetupRouter(p RouterParams) *chi.Mux {
 				cc.Post("/appointments/{id}/reschedule", p.AppointmentHandler.Reschedule)
 				cc.Post("/appointments/{id}/cancel", p.AppointmentHandler.Cancel)
 				cc.Post("/appointments/{id}/checkin", p.AppointmentHandler.CheckIn)
+
+				// Doctor Schedules & Leaves (Fase 1)
+				cc.Get("/doctors/schedules", p.AppointmentHandler.GetDoctorSchedules)
+				cc.Post("/doctors/schedules", p.AppointmentHandler.CreateDoctorSchedule)
+				cc.Delete("/doctors/schedules/{id}", p.AppointmentHandler.DeleteDoctorSchedule)
+				cc.Get("/doctors/leaves", p.AppointmentHandler.GetDoctorLeaves)
+				cc.Post("/doctors/leaves", p.AppointmentHandler.CreateDoctorLeave)
 			})
 
 			// 5. NURSE: Vital Signs TTV, Triase & Asesmen
@@ -156,6 +168,11 @@ func SetupRouter(p RouterParams) *chi.Mux {
 
 				doc.Get("/clinical/certificates/visit/{visit_id}", p.ClinicalHandler.GetMedicalCertificateByVisit)
 				doc.With(middleware.RequireRoles("SUPERADMIN", "DOCTOR")).Post("/clinical/certificates", p.ClinicalHandler.CreateMedicalCertificate)
+
+				// Informed Consents (Fase 1)
+				doc.With(middleware.RequireRoles("SUPERADMIN", "DOCTOR")).Post("/clinical/consents", p.ClinicalHandler.CreateInformedConsent)
+				doc.Get("/clinical/consents/visit/{visit_id}", p.ClinicalHandler.GetInformedConsentsByVisit)
+				doc.Get("/clinical/consents/{id}", p.ClinicalHandler.GetInformedConsentByID)
 			})
 
 			// 7. PHARMACY: Prescriptions & Dispensing
@@ -166,6 +183,10 @@ func SetupRouter(p RouterParams) *chi.Mux {
 				pha.With(middleware.RequireRoles("SUPERADMIN", "DOCTOR")).Post("/pharmacy/prescriptions", p.PharmacyHandler.CreatePrescription)
 				pha.With(middleware.RequireRoles("SUPERADMIN", "PHARMACY")).Post("/pharmacy/prescriptions/{id}/review", p.PharmacyHandler.ReviewPrescription)
 				pha.With(middleware.RequireRoles("SUPERADMIN", "PHARMACY")).Post("/pharmacy/prescriptions/{id}/dispense", p.PharmacyHandler.DispensePrescription)
+
+				// Medicine Returns (Fase 1)
+				pha.With(middleware.RequireRoles("SUPERADMIN", "PHARMACY", "CASHIER")).Post("/pharmacy/returns", p.PharmacyHandler.CreateMedicineReturn)
+				pha.Get("/pharmacy/returns", p.PharmacyHandler.GetMedicineReturns)
 			})
 
 			// 8. SUPPORT / PENUNJANG: Orders (Lab/Rad/Fisio) - support both /support and /ancillary
@@ -200,6 +221,8 @@ func SetupRouter(p RouterParams) *chi.Mux {
 				csh.Post("/billing/invoices", p.BillingHandler.CreateInvoice)
 				csh.Post("/cashier/invoices/{id}/pay", p.BillingHandler.ProcessPayment)
 				csh.Post("/billing/invoices/{id}/pay", p.BillingHandler.ProcessPayment)
+				csh.Post("/cashier/invoices/{id}/pay-split", p.BillingHandler.ProcessSplitPayment)
+				csh.Post("/billing/invoices/{id}/pay-split", p.BillingHandler.ProcessSplitPayment)
 
 				// Shifts (supporting both /cashier/shift/... and /billing/shifts/...)
 				csh.Get("/cashier/shift/active", p.BillingHandler.GetActiveShift)
@@ -237,6 +260,12 @@ func SetupRouter(p RouterParams) *chi.Mux {
 					log.With(middleware.RequireRoles("SUPERADMIN", "LOGISTICS")).Get("/"+prefix+"/grn", p.InventoryHandler.GetGRNs)
 					log.With(middleware.RequireRoles("SUPERADMIN", "LOGISTICS")).Post("/"+prefix+"/grn", p.InventoryHandler.CreateGRN)
 
+					// Stock Opname & Pemusnahan Obat (Fase 1)
+					log.With(middleware.RequireRoles("SUPERADMIN", "LOGISTICS", "PHARMACY")).Get("/"+prefix+"/stock-opname", p.InventoryHandler.GetStockOpnames)
+					log.With(middleware.RequireRoles("SUPERADMIN", "LOGISTICS", "PHARMACY")).Post("/"+prefix+"/stock-opname", p.InventoryHandler.CreateStockOpname)
+					log.With(middleware.RequireRoles("SUPERADMIN", "LOGISTICS", "PHARMACY")).Get("/"+prefix+"/disposals", p.InventoryHandler.GetMedicineDisposals)
+					log.With(middleware.RequireRoles("SUPERADMIN", "LOGISTICS", "PHARMACY")).Post("/"+prefix+"/disposals", p.InventoryHandler.CreateMedicineDisposal)
+
 					// Stock Mutations
 					log.With(middleware.RequireRoles("SUPERADMIN", "LOGISTICS", "PHARMACY")).Post("/"+prefix+"/mutations", p.InventoryHandler.CreateStockMutation)
 					log.With(middleware.RequireRoles("SUPERADMIN", "LOGISTICS", "PHARMACY")).Get("/"+prefix+"/mutations", p.InventoryHandler.GetStockMutations)
@@ -244,6 +273,10 @@ func SetupRouter(p RouterParams) *chi.Mux {
 			}
 			registerInventoryRoutes("logistics")
 			registerInventoryRoutes("inventory")
+
+			// 11. REPORTS: P&L & Top Diseases (Fase 1)
+			auth.Get("/reports/pnl", p.BillingHandler.GetPnLReport)
+			auth.Get("/reports/top-diseases", p.BillingHandler.GetTopDiseases)
 		})
 	})
 

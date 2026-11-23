@@ -359,3 +359,73 @@ func (u *BillingUsecase) GetShiftHistory(kasirID string, limit int) ([]domain.Ca
 	}
 	return u.billingRepo.GetShiftHistory(kasirID, limit)
 }
+
+// -------------------------------------------------------------
+// Split Payment & Reports (Fase 1)
+// -------------------------------------------------------------
+
+func (u *BillingUsecase) ProcessSplitPayment(invoiceID string, req domain.ProcessSplitPaymentRequest, currentUserID, currentUsername string) (*domain.Invoice, error) {
+	if len(req.Payments) == 0 {
+		return nil, errors.New("daftar rincian metode pembayaran wajib diisi")
+	}
+
+	shift, err := u.billingRepo.GetActiveShift(currentUserID)
+	if err != nil || shift == nil {
+		return nil, errors.New("silakan buka shift kasir terlebih dahulu sebelum menerima pembayaran")
+	}
+
+	inv, err := u.billingRepo.GetInvoiceByID(invoiceID)
+	if err != nil || inv == nil {
+		return nil, errors.New("invoice tidak ditemukan")
+	}
+
+	if inv.VisitID != "" {
+		presc, _ := u.pharmacyRepo.GetPrescriptionByVisitID(inv.VisitID)
+		if presc != nil && (presc.Status == "MENUNGGU_TELAAH" || presc.Status == "PENYIAPAN") {
+			return nil, errors.New("pembayaran ditolak: resep obat masih dalam antrean telaah / penyiapan di Farmasi")
+		}
+
+		orders, _ := u.ancillaryRepo.GetOrdersByVisitID(inv.VisitID)
+		for _, ord := range orders {
+			if ord.Status == "MENUNGGU" || ord.Status == "DALAM_PROSES" {
+				return nil, fmt.Errorf("pembayaran ditolak: pemeriksaan penunjang %s (%s) belum selesai divalidasi", ord.JenisOrder, ord.NamaTindakan)
+			}
+		}
+	}
+
+	var totalNominal float64
+	for _, p := range req.Payments {
+		if p.Nominal <= 0 {
+			return nil, errors.New("nominal pembayaran pada masing-masing metode harus lebih besar dari 0")
+		}
+		totalNominal += p.Nominal
+	}
+
+	updatedInv, err := u.billingRepo.AddSplitPayments(invoiceID, req.Payments, req.PromoCode, req.PromoName, req.PromoDiscount, req.UangDiterima, req.Kembalian, currentUserID, currentUsername)
+	if err != nil {
+		return nil, err
+	}
+
+	_ = u.auditRepo.Log(&domain.AuditLog{
+		UserID:     &currentUserID,
+		Username:   currentUsername,
+		Action:     "PROCESS_SPLIT_PAYMENT",
+		EntityType: "invoice",
+		EntityID:   invoiceID,
+		Details:    fmt.Sprintf(`{"total_paid": %.2f, "methods_count": %d}`, totalNominal, len(req.Payments)),
+	})
+
+	return updatedInv, nil
+}
+
+func (u *BillingUsecase) GetPnLReport(startDate, endDate string) (*domain.PnLReportDTO, error) {
+	return u.billingRepo.GetPnLReport(startDate, endDate)
+}
+
+func (u *BillingUsecase) GetTopDiseases(startDate, endDate string, limit int) ([]domain.TopDiseaseDTO, error) {
+	return u.billingRepo.GetTopDiseases(startDate, endDate, limit)
+}
+
+func (u *BillingUsecase) VerifyPublicDocument(docType, code string) (*domain.PublicDocumentVerification, error) {
+	return u.billingRepo.VerifyPublicDocument(docType, code)
+}

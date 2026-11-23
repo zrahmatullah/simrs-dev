@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/jmoiron/sqlx"
 	"simrs-asoy/backend/internal/domain"
+
+	"github.com/jmoiron/sqlx"
 )
 
 type ClinicalRepository struct {
@@ -36,7 +37,7 @@ func (r *ClinicalRepository) GetVitalSignsByVisitID(visitID string) ([]domain.Vi
 		       vs.td_sistole, vs.td_diastole, vs.hr, vs.rr, vs.temp, vs.spo2, vs.bb, vs.tb, vs.lk,
 		       vs.skala_nyeri, vs.kesadaran, vs.triase_level, vs.catatan_keperawatan, vs.created_at
 		FROM vital_signs vs
-		LEFT JOIN users u ON vs.nurse_id = u.id
+		LEFT JOIN users u ON vs.nurse_id = u.ids
 		WHERE vs.visit_id = $1 AND vs.deleted_at IS NULL
 		ORDER BY vs.created_at DESC
 	`
@@ -232,4 +233,56 @@ func (r *ClinicalRepository) GetNursingAssessmentByVisitID(visitID string) (*dom
 		return nil, err
 	}
 	return &na, nil
+}
+
+// -------------------------------------------------------------
+// Informed Consent Digital (Fase 1)
+// -------------------------------------------------------------
+
+func (r *ClinicalRepository) CreateInformedConsent(c *domain.InformedConsent) error {
+	query := `
+		INSERT INTO informed_consents (visit_id, patient_id, doctor_id, consent_type, action_name,
+		                               risks_explained, signer_name, signer_relation, patient_signature_data,
+		                               doctor_signature_data, qr_code_token, created_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+		RETURNING id, created_at
+	`
+	return r.db.QueryRow(query, c.VisitID, c.PatientID, c.DoctorID, c.ConsentType, c.ActionName,
+		c.RisksExplained, c.SignerName, c.SignerRelation, c.PatientSignatureData,
+		c.DoctorSignatureData, c.QRCodeToken).Scan(&c.ID, &c.CreatedAt)
+}
+
+func (r *ClinicalRepository) GetInformedConsentsByVisitID(visitID string) ([]domain.InformedConsent, error) {
+	query := `
+		SELECT ic.id, ic.visit_id, v.no_rawat, ic.patient_id, p.nama_pasien AS patient_name, p.no_rm,
+		       ic.doctor_id, u.full_name AS doctor_name, ic.consent_type, ic.action_name,
+		       ic.risks_explained, ic.signer_name, ic.signer_relation, ic.patient_signature_data,
+		       ic.doctor_signature_data, ic.qr_code_token, ic.created_at
+		FROM informed_consents ic
+		JOIN visits v ON ic.visit_id = v.id
+		JOIN patients p ON ic.patient_id = p.id
+		JOIN users u ON ic.doctor_id = u.id
+		WHERE ic.visit_id = $1
+		ORDER BY ic.created_at DESC
+	`
+	var list []domain.InformedConsent
+	err := r.db.Select(&list, query, visitID)
+	return list, err
+}
+
+func (r *ClinicalRepository) GetInformedConsentByID(id string) (*domain.InformedConsent, error) {
+	query := `
+		SELECT ic.id, ic.visit_id, v.no_rawat, ic.patient_id, p.nama_pasien AS patient_name, p.no_rm,
+		       ic.doctor_id, u.full_name AS doctor_name, ic.consent_type, ic.action_name,
+		       ic.risks_explained, ic.signer_name, ic.signer_relation, ic.patient_signature_data,
+		       ic.doctor_signature_data, ic.qr_code_token, ic.created_at
+		FROM informed_consents ic
+		JOIN visits v ON ic.visit_id = v.id
+		JOIN patients p ON ic.patient_id = p.id
+		JOIN users u ON ic.doctor_id = u.id
+		WHERE ic.id = $1
+	`
+	var ic domain.InformedConsent
+	err := r.db.Get(&ic, query, id)
+	return &ic, err
 }

@@ -442,6 +442,11 @@ type MedicalCertificate struct {
 	TglMulai    *string   `json:"tgl_mulai" db:"tgl_mulai"`
 	TglSelesai  *string   `json:"tgl_selesai" db:"tgl_selesai"`
 	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+
+	// Joined details
+	PatientName string    `json:"patient_name,omitempty" db:"patient_name"`
+	NoRM        string    `json:"no_rm,omitempty" db:"no_rm"`
+	DoctorName  string    `json:"doctor_name,omitempty" db:"doctor_name"`
 }
 
 type AuditLog struct {
@@ -556,4 +561,131 @@ type GoodsReceiptNote struct {
 	Status              string    `json:"status" db:"status"`
 	Notes               string    `json:"notes" db:"notes"`
 	CreatedAt           time.Time `json:"created_at" db:"created_at"`
+}
+
+// -------------------------------------------------------------
+// FASE 1 MODELS
+// -------------------------------------------------------------
+
+// Doctor Schedule & Leave
+type DoctorSchedule struct {
+	ID          int       `json:"id" db:"id"`
+	DoctorID    string    `json:"doctor_id" db:"doctor_id"`
+	DoctorName  string    `json:"doctor_name,omitempty" db:"doctor_name"`
+	PoliID      int       `json:"poli_id" db:"poli_id"`
+	PoliName    string    `json:"poli_name,omitempty" db:"poli_name"`
+	DayOfWeek   int       `json:"day_of_week" db:"day_of_week"` // 0=Minggu, 1=Senin..
+	StartTime   string    `json:"start_time" db:"start_time"`
+	EndTime     string    `json:"end_time" db:"end_time"`
+	MaxQuota    int       `json:"max_quota" db:"max_quota"`
+	StatusAktif bool      `json:"status_aktif" db:"status_aktif"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
+}
+
+type DoctorLeave struct {
+	ID                   string    `json:"id" db:"id"`
+	DoctorID             string    `json:"doctor_id" db:"doctor_id"`
+	DoctorName           string    `json:"doctor_name,omitempty" db:"doctor_name"`
+	StartDate            string    `json:"start_date" db:"start_date"`
+	EndDate              string    `json:"end_date" db:"end_date"`
+	Reason               string    `json:"reason" db:"reason"`
+	SubstituteDoctorID   *string   `json:"substitute_doctor_id" db:"substitute_doctor_id"`
+	SubstituteDoctorName *string   `json:"substitute_doctor_name,omitempty" db:"substitute_doctor_name"`
+	CreatedAt            time.Time `json:"created_at" db:"created_at"`
+}
+
+// Informed Consent Digital
+type InformedConsent struct {
+	ID                   string    `json:"id" db:"id"`
+	VisitID              string    `json:"visit_id" db:"visit_id"`
+	NoRawat              string    `json:"no_rawat,omitempty" db:"no_rawat"`
+	PatientID            string    `json:"patient_id" db:"patient_id"`
+	PatientName          string    `json:"patient_name,omitempty" db:"patient_name"`
+	NoRM                 string    `json:"no_rm,omitempty" db:"no_rm"`
+	DoctorID             string    `json:"doctor_id" db:"doctor_id"`
+	DoctorName           string    `json:"doctor_name,omitempty" db:"doctor_name"`
+	ConsentType          string    `json:"consent_type" db:"consent_type"`
+	ActionName           string    `json:"action_name" db:"action_name"`
+	RisksExplained       string    `json:"risks_explained" db:"risks_explained"`
+	SignerName           string    `json:"signer_name" db:"signer_name"`
+	SignerRelation       string    `json:"signer_relation" db:"signer_relation"`
+	PatientSignatureData string    `json:"patient_signature_data" db:"patient_signature_data"`
+	DoctorSignatureData  string    `json:"doctor_signature_data" db:"doctor_signature_data"`
+	QRCodeToken          string    `json:"qr_code_token" db:"qr_code_token"`
+	CreatedAt            time.Time `json:"created_at" db:"created_at"`
+}
+
+// Medicine Returns
+type MedicineReturnItem struct {
+	ID        string    `json:"id" db:"id"`
+	ReturnID  string    `json:"return_id" db:"return_id"`
+	ItemID    int       `json:"item_id" db:"item_id"`
+	ItemName  string    `json:"item_name" db:"item_name"`
+	Qty       int       `json:"qty" db:"qty"`
+	UnitPrice float64   `json:"unit_price" db:"unit_price"`
+	Subtotal  float64   `json:"subtotal" db:"subtotal"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+}
+
+type MedicineReturn struct {
+	ID             string               `json:"id" db:"id"`
+	NomorRetur     string               `json:"nomor_retur" db:"nomor_retur"`
+	PrescriptionID *string              `json:"prescription_id" db:"prescription_id"`
+	VisitID        string               `json:"visit_id" db:"visit_id"`
+	NoRawat        string               `json:"no_rawat,omitempty" db:"no_rawat"`
+	PatientID      string               `json:"patient_id" db:"patient_id"`
+	PatientName    string               `json:"patient_name,omitempty" db:"patient_name"`
+	InvoiceID      *string              `json:"invoice_id" db:"invoice_id"`
+	Alasan         string               `json:"alasan" db:"alasan"`
+	TotalRefund    float64              `json:"total_refund" db:"total_refund"`
+	Status         string               `json:"status" db:"status"`
+	CreatedBy      *string              `json:"created_by" db:"created_by"`
+	CreatedAt      time.Time            `json:"created_at" db:"created_at"`
+	Items          []MedicineReturnItem `json:"items,omitempty"`
+}
+
+// Stock Opname
+type StockOpnameItem struct {
+	ID                   string    `json:"id" db:"id"`
+	OpnameID             string    `json:"opname_id" db:"opname_id"`
+	ItemID               int       `json:"item_id" db:"item_id"`
+	ItemName             string    `json:"item_name" db:"item_name"`
+	SystemQty            int       `json:"system_qty" db:"system_qty"`
+	PhysicalQty          int       `json:"physical_qty" db:"physical_qty"`
+	DifferenceQty        int       `json:"difference_qty" db:"difference_qty"`
+	HppPrice             float64   `json:"hpp_price" db:"hpp_price"`
+	TotalDifferenceValue float64   `json:"total_difference_value" db:"total_difference_value"`
+	Notes                string    `json:"notes" db:"notes"`
+	CreatedAt            time.Time `json:"created_at" db:"created_at"`
+}
+
+type StockOpname struct {
+	ID                string            `json:"id" db:"id"`
+	OpnameNumber      string            `json:"opname_number" db:"opname_number"`
+	OpnameDate        string            `json:"opname_date" db:"opname_date"`
+	DepoType          string            `json:"depo_type" db:"depo_type"`
+	Status            string            `json:"status" db:"status"`
+	TotalItems        int               `json:"total_items" db:"total_items"`
+	TotalDeviasiNilai float64           `json:"total_deviasi_nilai" db:"total_deviasi_nilai"`
+	Notes             string            `json:"notes" db:"notes"`
+	CreatedBy         *string           `json:"created_by" db:"created_by"`
+	CreatedAt         time.Time         `json:"created_at" db:"created_at"`
+	Items             []StockOpnameItem `json:"items,omitempty"`
+}
+
+// Medicine Disposal (Pemusnahan Obat)
+type MedicineDisposal struct {
+	ID             string    `json:"id" db:"id"`
+	DisposalNumber string    `json:"disposal_number" db:"disposal_number"`
+	ItemID         int       `json:"item_id" db:"item_id"`
+	ItemName       string    `json:"item_name" db:"item_name"`
+	BatchNumber    string    `json:"batch_number" db:"batch_number"`
+	ExpiryDate     string    `json:"expiry_date" db:"expiry_date"`
+	Qty            int       `json:"qty" db:"qty"`
+	UnitPrice      float64   `json:"unit_price" db:"unit_price"`
+	TotalLoss      float64   `json:"total_loss" db:"total_loss"`
+	Reason         string    `json:"reason" db:"reason"`
+	WitnessName    string    `json:"witness_name" db:"witness_name"`
+	CreatedBy      *string   `json:"created_by" db:"created_by"`
+	CreatedAt      time.Time `json:"created_at" db:"created_at"`
 }

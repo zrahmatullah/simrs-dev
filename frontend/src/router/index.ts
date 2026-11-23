@@ -10,6 +10,18 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   {
+    path: '/display-queue',
+    name: 'DisplayQueue',
+    component: () => import('@/views/public/DisplayQueueView.vue'),
+    meta: { public: true },
+  },
+  {
+    path: '/verify-doc',
+    name: 'VerifyDoc',
+    component: () => import('@/views/public/VerifyDocView.vue'),
+    meta: { public: true },
+  },
+  {
     path: '/',
     component: MainLayout,
     redirect: () => {
